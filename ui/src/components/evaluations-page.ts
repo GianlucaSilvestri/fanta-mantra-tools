@@ -29,6 +29,14 @@ interface Preferences {
   number_of_goalkeepers: number;
 }
 
+type StatusKind = "under" | "ok" | "over";
+
+interface EvaluationStatus {
+  credits: { used: number; total: number; percentage: number; status: StatusKind };
+  players: { evaluated: number; min: number; max: number; percentage: number; status: StatusKind };
+  goalkeepers: { evaluated: number; target: number; percentage: number; status: StatusKind };
+}
+
 /** Scale base-1000 stored integer down to the user's auction credits. */
 function toAuction(stored: number | null, credits: number): number | null {
   if (stored == null) return null;
@@ -167,6 +175,7 @@ export class EvaluationsPage extends LitElement {
 
   @state() private players: PlayerRow[] = [];
   @state() private prefs: Preferences | null = null;
+  @state() private status: EvaluationStatus | null = null;
   @state() private loading = true;
   @state() private loadError = "";
   @state() private teamFilter = "";
@@ -185,18 +194,31 @@ export class EvaluationsPage extends LitElement {
     this.loading = true;
     this.loadError = "";
     try {
-      const [playersRes, prefsRes] = await Promise.all([
+      const [playersRes, prefsRes, statusRes] = await Promise.all([
         fetch(`${BACKEND_URL}/players`),
         fetch(`${BACKEND_URL}/preferences`),
+        fetch(`${BACKEND_URL}/evaluations/status`),
       ]);
       if (!playersRes.ok) throw new Error(`/players HTTP ${playersRes.status}`);
       if (!prefsRes.ok) throw new Error(`/preferences HTTP ${prefsRes.status}`);
+      if (!statusRes.ok) throw new Error(`/evaluations/status HTTP ${statusRes.status}`);
       this.players = (await playersRes.json()) as PlayerRow[];
       this.prefs = (await prefsRes.json()) as Preferences;
+      this.status = (await statusRes.json()) as EvaluationStatus;
     } catch (err) {
       this.loadError = err instanceof Error ? err.message : String(err);
     } finally {
       this.loading = false;
+    }
+  }
+
+  private async refreshStatus(): Promise<void> {
+    try {
+      const res = await fetch(`${BACKEND_URL}/evaluations/status`);
+      if (!res.ok) return;
+      this.status = (await res.json()) as EvaluationStatus;
+    } catch {
+      // Leave stale status in place; another save attempt will refresh it.
     }
   }
 
@@ -243,65 +265,6 @@ export class EvaluationsPage extends LitElement {
     }
   }
 
-  /** Per-auction completeness stats, computed from current player data + prefs. */
-  private get stats() {
-    const prefs = this.prefs!;
-    const auctioners = prefs.number_of_auctioners;
-    const creditsPerTeam = prefs.credits_per_team;
-    const creditTotal = auctioners * creditsPerTeam;
-    const minPlayers = auctioners * prefs.min_team_size;
-    const maxPlayers = auctioners * prefs.max_team_size;
-    const goalkeepersTarget = auctioners * prefs.number_of_goalkeepers;
-
-    let storedSum = 0;
-    let playersEvaluated = 0;
-    let goalkeepersEvaluated = 0;
-    for (const p of this.players) {
-      if (p.evaluation != null) {
-        playersEvaluated += 1;
-        storedSum += p.evaluation;
-        if (p.mantra_roles.includes("Por")) goalkeepersEvaluated += 1;
-      }
-    }
-    // Stored sum is in base-1000; bring it into the user's credits scale.
-    const creditsUsed = Math.floor((storedSum * creditsPerTeam) / BASE_CREDITS);
-
-    const creditsPct = creditTotal > 0 ? (creditsUsed / creditTotal) * 100 : 0;
-    const playersPct = minPlayers > 0 ? (playersEvaluated / minPlayers) * 100 : 0;
-    const goalkeepersPct =
-      goalkeepersTarget > 0 ? (goalkeepersEvaluated / goalkeepersTarget) * 100 : 0;
-
-    const creditsStatus: "under" | "ok" | "over" =
-      creditsUsed > creditTotal ? "over" : creditsUsed === creditTotal ? "ok" : "under";
-    let playersStatus: "under" | "ok" | "over";
-    if (playersEvaluated < minPlayers) playersStatus = "under";
-    else if (playersEvaluated > maxPlayers) playersStatus = "over";
-    else playersStatus = "ok";
-    let goalkeepersStatus: "under" | "ok" | "over";
-    if (goalkeepersTarget === 0) goalkeepersStatus = "ok";
-    else if (goalkeepersEvaluated < goalkeepersTarget) goalkeepersStatus = "under";
-    else if (goalkeepersEvaluated > goalkeepersTarget) goalkeepersStatus = "over";
-    else goalkeepersStatus = "ok";
-
-    return {
-      auctioners,
-      creditsPerTeam,
-      creditsUsed,
-      creditTotal,
-      creditsPct,
-      creditsStatus,
-      playersEvaluated,
-      minPlayers,
-      maxPlayers,
-      playersPct,
-      playersStatus,
-      goalkeepersEvaluated,
-      goalkeepersTarget,
-      goalkeepersPct,
-      goalkeepersStatus,
-    };
-  }
-
   private async save(playerId: number, raw: string): Promise<void> {
     if (!this.prefs) return;
     const trimmed = raw.trim();
@@ -326,6 +289,8 @@ export class EvaluationsPage extends LitElement {
         this.saveErrors.delete(playerId);
         this.saveErrors = new Set(this.saveErrors);
       }
+      // Indicator card data lives on the server; pull a fresh snapshot.
+      void this.refreshStatus();
     } catch {
       this.saveErrors = new Set(this.saveErrors).add(playerId);
     }
@@ -340,36 +305,38 @@ export class EvaluationsPage extends LitElement {
   }
 
   private renderIndicator() {
-    const s = this.stats;
+    const s = this.status;
+    const prefs = this.prefs;
+    if (!s || !prefs) return nothing;
     const fmtPct = (p: number) => `${p.toFixed(0)}%`;
     const barWidth = (p: number) => `${Math.min(p, 100)}%`;
     return html`
       <div class="indicator">
         <div class="indicator-header">
-          ${s.auctioners} auctioners · ${s.creditsPerTeam} credits/team
+          ${prefs.number_of_auctioners} auctioners · ${prefs.credits_per_team} credits/team
         </div>
-        <div class="metric ${s.creditsStatus}">
+        <div class="metric ${s.credits.status}">
           <div class="metric-label">
-            Credits spent <span>${s.creditsUsed} / ${s.creditTotal}</span>
-            <span class="pct">${fmtPct(s.creditsPct)}</span>
+            Credits spent <span>${s.credits.used} / ${s.credits.total}</span>
+            <span class="pct">${fmtPct(s.credits.percentage)}</span>
           </div>
-          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.creditsPct)}"></div></div>
+          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.credits.percentage)}"></div></div>
         </div>
-        <div class="metric ${s.playersStatus}">
+        <div class="metric ${s.players.status}">
           <div class="metric-label">
             Players evaluated
-            <span>${s.playersEvaluated} / ${s.minPlayers}–${s.maxPlayers}</span>
-            <span class="pct">${fmtPct(s.playersPct)}</span>
+            <span>${s.players.evaluated} / ${s.players.min}–${s.players.max}</span>
+            <span class="pct">${fmtPct(s.players.percentage)}</span>
           </div>
-          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.playersPct)}"></div></div>
+          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.players.percentage)}"></div></div>
         </div>
-        <div class="metric ${s.goalkeepersStatus}">
+        <div class="metric ${s.goalkeepers.status}">
           <div class="metric-label">
             Goalkeepers evaluated
-            <span>${s.goalkeepersEvaluated} / ${s.goalkeepersTarget}</span>
-            <span class="pct">${fmtPct(s.goalkeepersPct)}</span>
+            <span>${s.goalkeepers.evaluated} / ${s.goalkeepers.target}</span>
+            <span class="pct">${fmtPct(s.goalkeepers.percentage)}</span>
           </div>
-          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.goalkeepersPct)}"></div></div>
+          <div class="bar"><div class="bar-fill" style="width: ${barWidth(s.goalkeepers.percentage)}"></div></div>
         </div>
       </div>
     `;

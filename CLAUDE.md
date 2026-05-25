@@ -29,7 +29,7 @@ Everything runs in Docker via `docker-compose.yml`:
 - `backend/scripts/import_players.py` — both a CLI and a library. Exposes `parse_players(source)` (path/bytes/file-like → `list[Player]`, raises on bad data) and `write_players(rows)` (TRUNCATE + INSERT in one transaction). The CLI just chains the two.
 - `ui/src/components/app-root.ts` — LIT root shell. Owns the tiny pathname-based router (no library) and renders `<home-page>` for `/`, `<evaluations-page>` for `/evaluations`, `<settings-page>` for `/settings`.
 - `ui/src/components/home-page.ts` — pings `GET /health` on mount and shows the result.
-- `ui/src/components/evaluations-page.ts` — table of every player joined with `user_evaluations`. On mount fetches `GET /players` and `GET /preferences` in parallel; reads `credits_per_team` from preferences to scale `fanta_market_value` (read-only column) and the user's `evaluation` (editable column, `min=0`). One indicator card above the table shows credit-spent and players-evaluated completeness vs `number_of_auctioners × credits_per_team` and `× min/max_team_size`. Team + name filters, sortable headers (default: `fanta_evaluation DESC`). Edits PATCH `/evaluations/{player_id}` on `change`, with the displayed value **normalized to the 1000-credit base** before being sent and rescaled on render.
+- `ui/src/components/evaluations-page.ts` — table of every player joined with `user_evaluations`. On mount fetches `GET /players`, `GET /preferences`, and `GET /evaluations/status` in parallel; reads `credits_per_team` from preferences to scale `fanta_market_value` (read-only column) and the user's `evaluation` (editable column, `min=0`). The indicator card above the table is fully driven by `/evaluations/status` (credits / players / goalkeepers, each with `under | ok | over` status). Team + role + name filters, sortable headers (default: `fanta_evaluation DESC`). Edits PATCH `/evaluations/{player_id}` on `change`, with the displayed value **normalized to the 1000-credit base** before being sent and rescaled on render. After each successful save the page re-fetches `/evaluations/status` so the indicator stays in sync (no client-side stats math).
 - `ui/src/components/settings-page.ts` — two sections. (1) **Auction preferences** form: five number inputs bound to `GET /preferences`, each `PUT`s the full body on `change`. (2) **Player data**: file-upload form that POSTs the chosen xlsx to `/players/import` (with a confirm dialog since it wipes the table).
 
 ## Database schema
@@ -56,6 +56,12 @@ The xlsx columns we don't store: `Qt.A, Qt.I, Diff., Qt.I M, Diff.M, FVM`, and t
 Migrations so far: `0001_create_players_table`, `0002_team_to_varchar`, `0003_simplify_player_columns`, `0004_drop_user_market_value`, `0005_create_user_evaluations`, `0006_create_user_preferences` (singleton table seeded with defaults), `0007_simplify_user_evaluations` (truncated the table and collapsed the four per-auction columns into a single `evaluation`).
 
 Unknown MantraRole values in the xlsx still raise loudly (signals a real rule change — add the value to the enum + a new migration).
+
+### Evaluation status (`GET /evaluations/status`)
+
+Single source of truth for "is the user's evaluation work complete enough?". Lives in `backend/app/routers/evaluations.py` alongside the `PATCH /evaluations/{player_id}` handler. Returns three groups — `credits`, `players`, `goalkeepers` — each with `{used|evaluated, total|min|max|target, percentage, status}` where `status` is `"under" | "ok" | "over"`. Targets are derived from `user_preferences` (auctioners × credits_per_team, × min/max_team_size, × number_of_goalkeepers respectively). Credits are returned already scaled to the user's `credits_per_team` budget (not the 1000-base storage units).
+
+The `/evaluations` page consumes this endpoint to render its indicator card. Future auction-creation flow will hit the same endpoint to gate creation on a sufficiently-complete evaluation (e.g. require `credits.status !== "under"` and `players.status === "ok"`).
 
 ## Running the app
 
