@@ -1,8 +1,15 @@
 [project]
 name = "fantacalcio-mantra"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tools and small web app for the Italian Serie A Fantacalcio (Mantra ruleset)"
 requires-python = ">=3.14"
 dependencies = [
-    "selenium>=4.44.0",
+    "alembic>=1.13",
+    "fastapi>=0.115",
+    "openpyxl>=3.1.5",
+    "psycopg2-binary>=2.9",
+    "pydantic-settings>=2.5",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0",
+    "uvicorn[standard]>=0.30",
 ]

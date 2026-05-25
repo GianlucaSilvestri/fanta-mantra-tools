@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fanta_mantra
+      POSTGRES_USER: fanta
+      POSTGRES_PASSWORD: fanta
+    ports:
+      # Expose on 5433 to avoid clashing with a host Postgres on 5432.
+      # From within the compose network, services still reach it as `db:5432`.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fanta -d fanta_mantra"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://fanta:fanta@db:5432/fanta_mantra
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic -c backend/alembic.ini upgrade head &&
+             uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./ui:/app
+      # Keep node_modules from the image; don't let the bind mount shadow it.
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: sh -c "yarn install && yarn dev --host 0.0.0.0"
+
+volumes:
+  pgdata:

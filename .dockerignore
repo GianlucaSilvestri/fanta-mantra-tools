@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.yarn/
+.pnp.*
+.git/
+.idea/
+.vscode/
+.DS_Store
+.env
+ui/node_modules/
