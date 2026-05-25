@@ -1,17 +1,17 @@
 from zipfile import BadZipFile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import select
 
 from backend.app.db import SessionLocal
-from backend.app.models import Player, UserEvaluation
+from backend.app.models import AuctionEvaluation, Player
 from backend.scripts.import_players import parse_players, write_players
 
 router = APIRouter(prefix="/players", tags=["players"])
 
 
-def _serialize(player: Player, evaluation: UserEvaluation | None) -> dict:
+def _serialize(player: Player, evaluation: int | None) -> dict:
     return {
         "id": player.id,
         "name": player.name,
@@ -19,19 +19,30 @@ def _serialize(player: Player, evaluation: UserEvaluation | None) -> dict:
         "mantra_roles": [r.value for r in player.mantra_roles],
         "fanta_evaluation": player.fanta_evaluation,
         "fanta_market_value": player.fanta_market_value,
-        "evaluation": evaluation.evaluation if evaluation else None,
+        "evaluation": evaluation,
     }
 
 
 @router.get("")
-def list_players() -> list[dict]:
+def list_players(auction_id: int | None = Query(default=None)) -> list[dict]:
+    """List all players. With `?auction_id=N`, joins that auction's evaluations."""
     with SessionLocal() as session:
+        if auction_id is None:
+            stmt = select(Player).order_by(
+                Player.fanta_evaluation.desc().nullslast(), Player.name.asc()
+            )
+            return [_serialize(p, None) for p in session.execute(stmt).scalars().all()]
+
         stmt = (
-            select(Player, UserEvaluation)
-            .outerjoin(UserEvaluation, UserEvaluation.player_id == Player.id)
+            select(Player, AuctionEvaluation.evaluation)
+            .outerjoin(
+                AuctionEvaluation,
+                (AuctionEvaluation.player_id == Player.id)
+                & (AuctionEvaluation.auction_id == auction_id),
+            )
             .order_by(Player.fanta_evaluation.desc().nullslast(), Player.name.asc())
         )
-        return [_serialize(p, ue) for p, ue in session.execute(stmt).all()]
+        return [_serialize(p, ev) for p, ev in session.execute(stmt).all()]
 
 
 @router.post("/import")

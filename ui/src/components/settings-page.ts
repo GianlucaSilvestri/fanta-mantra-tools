@@ -1,137 +1,18 @@
-import { LitElement, css, html, nothing } from "lit";
+import { LitElement, html, nothing } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 
 const BACKEND_URL = "http://localhost:8000";
 
 type UploadStatus = "idle" | "uploading" | "success" | "error";
-type PrefsStatus = "loading" | "ready" | "saving" | "saved" | "error";
-
-interface Preferences {
-  number_of_auctioners: number;
-  min_team_size: number;
-  max_team_size: number;
-  credits_per_team: number;
-  number_of_goalkeepers: number;
-}
-
-type PrefKey = keyof Preferences;
-
-const PREF_FIELDS: { key: PrefKey; label: string; min: number }[] = [
-  { key: "number_of_auctioners", label: "Auctioners", min: 1 },
-  { key: "credits_per_team", label: "Credits per team", min: 1 },
-  { key: "min_team_size", label: "MIN players / team", min: 1 },
-  { key: "max_team_size", label: "MAX players / team", min: 1 },
-  { key: "number_of_goalkeepers", label: "Goalkeepers / team", min: 0 },
-];
 
 @customElement("settings-page")
 export class SettingsPage extends LitElement {
-  static styles = css`
-    :host {
-      display: block;
-    }
-    section {
-      margin-bottom: 2rem;
-    }
-    h3 {
-      margin: 0 0 0.5rem;
-      font-size: 1.05rem;
-    }
-    form.upload {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      margin: 1rem 0;
-    }
-    .prefs-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 0.6rem 1rem;
-      margin: 0.75rem 0;
-    }
-    .prefs-grid label {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      font-size: 0.9rem;
-    }
-    .prefs-grid input {
-      padding: 0.3rem 0.4rem;
-      font: inherit;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .status {
-      margin-top: 0.4rem;
-      font-size: 0.85rem;
-      min-height: 1.2rem;
-    }
-    .ok {
-      color: green;
-    }
-    .err {
-      color: crimson;
-    }
-    .busy {
-      color: #555;
-      font-style: italic;
-    }
-  `;
-
-  // Preferences state
-  @state() private prefs: Preferences | null = null;
-  @state() private prefsStatus: PrefsStatus = "loading";
-  @state() private prefsMessage = "";
-
-  // Upload state
   @state() private uploadStatus: UploadStatus = "idle";
   @state() private uploadMessage = "";
   @query('input[type="file"]') private fileInput!: HTMLInputElement;
 
-  override connectedCallback(): void {
-    super.connectedCallback();
-    void this.loadPrefs();
-  }
-
-  private async loadPrefs(): Promise<void> {
-    this.prefsStatus = "loading";
-    try {
-      const res = await fetch(`${BACKEND_URL}/preferences`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      this.prefs = (await res.json()) as Preferences;
-      this.prefsStatus = "ready";
-    } catch (err) {
-      this.prefsStatus = "error";
-      this.prefsMessage = `Failed to load preferences: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
-
-  private async savePref(key: PrefKey, raw: string): Promise<void> {
-    if (!this.prefs) return;
-    const n = Number.parseInt(raw, 10);
-    if (!Number.isFinite(n) || n < 0) return;
-
-    const next: Preferences = { ...this.prefs, [key]: n };
-
-    this.prefsStatus = "saving";
-    this.prefsMessage = "Saving…";
-    try {
-      const res = await fetch(`${BACKEND_URL}/preferences`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { detail?: string };
-        throw new Error(data.detail ?? `HTTP ${res.status}`);
-      }
-      this.prefs = (await res.json()) as Preferences;
-      this.prefsStatus = "saved";
-      this.prefsMessage = "Saved.";
-    } catch (err) {
-      this.prefsStatus = "error";
-      this.prefsMessage = err instanceof Error ? err.message : String(err);
-    }
+  protected override createRenderRoot(): HTMLElement {
+    return this;
   }
 
   private async onUpload(event: SubmitEvent): Promise<void> {
@@ -169,76 +50,44 @@ export class SettingsPage extends LitElement {
     }
   }
 
-  private renderPrefsStatus() {
-    if (!this.prefsMessage) return nothing;
-    const cls =
-      this.prefsStatus === "saved"
-        ? "ok"
-        : this.prefsStatus === "error"
-          ? "err"
-          : "busy";
-    return html`<div class="status ${cls}">${this.prefsMessage}</div>`;
-  }
-
   private renderUploadStatus() {
     if (!this.uploadMessage) return nothing;
     const cls =
       this.uploadStatus === "success"
-        ? "ok"
+        ? "text-emerald-700"
         : this.uploadStatus === "error"
-          ? "err"
-          : "busy";
-    return html`<p class="${cls}">${this.uploadMessage}</p>`;
-  }
-
-  private renderPrefsForm() {
-    if (this.prefsStatus === "loading") return html`<p>Loading preferences…</p>`;
-    if (!this.prefs)
-      return html`<p class="err">${this.prefsMessage || "No preferences loaded."}</p>`;
-
-    return html`
-      <div class="prefs-grid">
-        ${PREF_FIELDS.map(
-          (f) => html`
-            <label>
-              ${f.label}
-              <input
-                type="number"
-                min=${String(f.min)}
-                step="1"
-                .value=${String(this.prefs![f.key])}
-                @change=${(e: Event) =>
-                  this.savePref(f.key, (e.target as HTMLInputElement).value)}
-              />
-            </label>
-          `,
-        )}
-      </div>
-      ${this.renderPrefsStatus()}
-    `;
+          ? "text-rose-700"
+          : "text-slate-600 italic";
+    return html`<p class="mt-2 text-sm ${cls}">${this.uploadMessage}</p>`;
   }
 
   override render() {
     return html`
-      <h2>Settings</h2>
+      <h2 class="text-xl font-semibold mb-4">Settings</h2>
 
-      <section>
-        <h3>Auction preferences</h3>
-        <p>League-wide configuration. Drives the scaling and indicators on the
-          <a href="/evaluations">evaluations</a> page. Saved automatically when you
-          leave a field.</p>
-        ${this.renderPrefsForm()}
-      </section>
-
-      <section>
-        <h3>Player data</h3>
-        <p>Upload the latest <code>Quotazioni_Fantacalcio_Stagione_2025_26.xlsx</code> from
-          fantacalcio.it. The server validates the file and, if at least one player is
-          recognized and exactly 20 teams are present, wipes the <code>players</code> table
-          and reloads it.</p>
-        <form class="upload" @submit=${this.onUpload}>
-          <input type="file" accept=".xlsx" required />
-          <button type="submit" ?disabled=${this.uploadStatus === "uploading"}>
+      <section class="max-w-2xl">
+        <h3 class="text-base font-semibold mb-2">Player data</h3>
+        <p class="text-sm text-slate-600 mb-3">
+          Upload the latest
+          <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">Quotazioni_Fantacalcio_Stagione_2025_26.xlsx</code>
+          from fantacalcio.it. The server validates the file and, if at least
+          one player is recognized and exactly 20 teams are present, wipes the
+          <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">players</code>
+          table and reloads it. Auction evaluations survive (they don't
+          reference players by FK).
+        </p>
+        <form class="flex items-center gap-3" @submit=${this.onUpload}>
+          <input
+            type="file"
+            accept=".xlsx"
+            required
+            class="block text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-800 file:px-3 file:py-1.5 file:text-white file:cursor-pointer hover:file:bg-slate-700"
+          />
+          <button
+            type="submit"
+            ?disabled=${this.uploadStatus === "uploading"}
+            class="rounded bg-sky-700 px-3 py-1.5 text-sm text-white hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             Upload &amp; import
           </button>
         </form>
