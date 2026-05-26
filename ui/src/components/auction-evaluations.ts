@@ -620,7 +620,7 @@ export class AuctionEvaluations extends LitElement {
         <td class="px-3 py-[7px] text-[13px] text-right font-semibold w-[70px] border-b border-line tabular-nums">
           ${scaledVal ?? ""}
         </td>
-        <td class="px-3 py-[7px] text-[13px] text-right w-[100px] border-b border-line">
+        <td class="px-3 py-[7px] text-[13px] text-right w-[120px] border-b border-line">
           <input
             type="number"
             min="1"
@@ -628,7 +628,7 @@ export class AuctionEvaluations extends LitElement {
             .value=${scaledEval === null ? "" : String(scaledEval)}
             @change=${(e: Event) => this.save(p.id, (e.target as HTMLInputElement).value)}
             placeholder="—"
-            class=${"w-16 px-2 py-[5px] rounded text-right text-[13px] bg-surface-2 border border-line tabular-nums focus:outline-none focus:border-accent transition-colors " +
+            class=${"w-24 px-2 py-[5px] rounded text-right text-[13px] bg-surface-2 border border-line tabular-nums focus:outline-none focus:border-accent transition-colors " +
             (hasEval ? "text-accent" : "text-fg-muted")}
           />
         </td>

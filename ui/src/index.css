@@ -51,5 +51,13 @@ a { color: inherit; text-decoration: none; }
 input, select, button, textarea { font-family: inherit; }
 input[type="number"] { font-variant-numeric: tabular-nums; }
 
+/* Hide native number spinners so the value isn't visually clipped. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
 button:not(:disabled), [role="button"]:not(:disabled), a[href] { cursor: pointer; }
 button:disabled, [role="button"][aria-disabled="true"] { cursor: not-allowed; }
