@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -65,7 +65,7 @@ class EvaluationPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    evaluation: int | None = Field(default=None, ge=1)
+    evaluation: int | None = Field(default=None, ge=0)
 
 
 # Fields a PATCH cannot touch when the auction has moved past INITIAL.
@@ -301,6 +301,31 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ),
                     )
 
+                # Freeze the player set into auction_evaluations: any player
+                # not yet evaluated for this auction gets a 0, so post-start
+                # state has exactly one row per player with a non-null value.
+                session.execute(
+                    pg_insert(AuctionEvaluation)
+                    .from_select(
+                        ["auction_id", "player_id", "evaluation"],
+                        select(literal(auction_id), Player.id, literal(0)),
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            AuctionEvaluation.auction_id,
+                            AuctionEvaluation.player_id,
+                        ],
+                    )
+                )
+                session.execute(
+                    AuctionEvaluation.__table__.update()
+                    .where(
+                        AuctionEvaluation.auction_id == auction_id,
+                        AuctionEvaluation.evaluation.is_(None),
+                    )
+                    .values(evaluation=0)
+                )
+
             for k, v in fields.items():
                 setattr(auction, k, v)
             session.flush()
@@ -445,6 +470,7 @@ def _compute_evaluation_status(session, auction: Auction) -> dict:
         .where(
             AuctionEvaluation.auction_id == auction.id,
             AuctionEvaluation.evaluation.is_not(None),
+            AuctionEvaluation.evaluation > 0,
         )
     )
     evaluated_count, stored_sum, goalkeepers_count = session.execute(stmt).one()
@@ -637,9 +663,9 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                     except ValueError:
                         invalid_rows.append(f"line {line_no}: non-integer evaluation {raw_eval!r}")
                         continue
-                    if evaluation < 1:
+                    if evaluation < 0:
                         invalid_rows.append(
-                            f"line {line_no}: evaluation must be >= 1 (got {evaluation})"
+                            f"line {line_no}: evaluation must be >= 0 (got {evaluation})"
                         )
                         continue
 
@@ -729,4 +755,28 @@ def autofill_evaluations(auction_id: int) -> dict:
                     ],
                 )
 
-    return {"autofilled": len(values)}
+            # Every remaining player gets a 0, so the table covers every
+            # known player after autofill (parallel to the start-auction flow).
+            session.execute(
+                pg_insert(AuctionEvaluation)
+                .from_select(
+                    ["auction_id", "player_id", "evaluation"],
+                    select(literal(auction_id), Player.id, literal(0)),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        AuctionEvaluation.auction_id,
+                        AuctionEvaluation.player_id,
+                    ],
+                )
+            )
+            zeroed = int(
+                session.execute(
+                    select(func.count(AuctionEvaluation.player_id)).where(
+                        AuctionEvaluation.auction_id == auction_id,
+                        AuctionEvaluation.evaluation == 0,
+                    )
+                ).scalar_one()
+            )
+
+    return {"autofilled": len(values), "zeroed": zeroed}

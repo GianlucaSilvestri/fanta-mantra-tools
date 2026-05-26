@@ -187,7 +187,7 @@ export class AuctionEvaluations extends LitElement {
         (!team || p.team === team) &&
         (!role || p.mantra_roles.includes(role)) &&
         (!name || p.name.toLowerCase().includes(name)) &&
-        (!this.onlyUneval || p.evaluation == null),
+        (!this.onlyUneval || p.evaluation == null || p.evaluation === 0),
     );
 
     const dir = this.sortDir === "asc" ? 1 : -1;
@@ -217,7 +217,7 @@ export class AuctionEvaluations extends LitElement {
   private async save(playerId: number, raw: string): Promise<void> {
     const trimmed = raw.trim();
     const displayed: number | null = trimmed === "" ? null : Number.parseInt(trimmed, 10);
-    if (displayed !== null && (Number.isNaN(displayed) || displayed < 1)) {
+    if (displayed !== null && (Number.isNaN(displayed) || displayed < 0)) {
       this.saveErrors = new Set(this.saveErrors).add(playerId);
       return;
     }
@@ -599,7 +599,10 @@ export class AuctionEvaluations extends LitElement {
   private renderRow(p: PlayerRow, credits: number) {
     const scaledEval = toAuction(p.evaluation, credits);
     const scaledVal = toAuction(p.fanta_market_value, credits);
-    const hasEval = scaledEval !== null;
+    // 0 is a real user-set value (means "I won't bid on this player") but it
+    // doesn't count toward completeness — render it muted to mirror the
+    // backend's `/evaluations/status` filter.
+    const hasEval = scaledEval !== null && scaledEval > 0;
     return html`
       <tr class="hover:bg-surface-hover">
         <td class="px-3 py-[7px] text-[13px] text-right text-fg-muted w-[50px] border-b border-line tabular-nums">
@@ -623,7 +626,7 @@ export class AuctionEvaluations extends LitElement {
         <td class="px-3 py-[7px] text-[13px] text-right w-[120px] border-b border-line">
           <input
             type="number"
-            min="1"
+            min="0"
             step="1"
             .value=${scaledEval === null ? "" : String(scaledEval)}
             @change=${(e: Event) => this.save(p.id, (e.target as HTMLInputElement).value)}
