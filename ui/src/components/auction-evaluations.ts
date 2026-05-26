@@ -35,6 +35,7 @@ interface Auction {
   max_team_size: number;
   credits_per_team: number;
   number_of_goalkeepers: number;
+  number_of_teams: number;
 }
 
 interface EvaluationStatus {
@@ -162,13 +163,18 @@ export class AuctionEvaluations extends LitElement {
     return Array.from(new Set(this.players.flatMap((p) => p.mantra_roles))).sort();
   }
 
+  private get teamsOk(): boolean {
+    return this.auction.number_of_teams === this.auction.number_of_auctioners;
+  }
+
   private get allGreen(): boolean {
     const s = this.status;
     return (
       !!s &&
       s.credits.status === "ok" &&
       s.players.status === "ok" &&
-      s.goalkeepers.status === "ok"
+      s.goalkeepers.status === "ok" &&
+      this.teamsOk
     );
   }
 
@@ -514,6 +520,22 @@ export class AuctionEvaluations extends LitElement {
           )}
         </div>
 
+        <div class="flex items-baseline justify-between gap-3">
+          <div class="text-[13px] font-semibold">${msg("Teams ready")}</div>
+          <div class="text-[12px] text-fg-dim tabular-nums">
+            <span>
+              ${this.auction.number_of_teams} /
+              ${this.auction.number_of_auctioners}
+            </span>
+            <span
+              class=${"ml-2 font-bold " +
+              (this.teamsOk ? PCT_CLS.ok : PCT_CLS.under)}
+            >
+              ${this.teamsOk ? msg("ok") : msg("under")}
+            </span>
+          </div>
+        </div>
+
         <div class="h-px bg-line my-1"></div>
 
         <button
@@ -528,8 +550,9 @@ export class AuctionEvaluations extends LitElement {
         ${this.allGreen
           ? nothing
           : html`<p class="text-fg-dim text-[12px] text-center m-0">
-              ${msg(html`All three indicators must be in the
-              <span class="text-accent font-bold">ok</span> zone to start.`)}
+              ${msg(html`All indicators (credits, players, goalkeepers,
+              teams) must be
+              <span class="text-accent font-bold">ok</span> to start.`)}
             </p>`}
         ${this.startError
           ? html`<p class="text-danger text-[12px] text-center m-0">

@@ -262,12 +262,32 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ),
                     )
 
-            # Gate the INITIAL → IN_PROGRESS transition on a complete evaluation.
+            # Gate the INITIAL → IN_PROGRESS transition on team count
+            # matching number_of_auctioners AND a complete evaluation.
             new_status = fields.get("status")
             if (
                 new_status == AuctionStatus.IN_PROGRESS
                 and auction.status == AuctionStatus.INITIAL
             ):
+                team_count = int(
+                    session.execute(
+                        select(func.count(AuctionTeam.id)).where(
+                            AuctionTeam.auction_id == auction_id
+                        )
+                    ).scalar_one()
+                )
+                target_teams = fields.get(
+                    "number_of_auctioners", auction.number_of_auctioners
+                )
+                if team_count != target_teams:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"cannot start auction: {team_count} teams created, "
+                            f"expected {target_teams}"
+                        ),
+                    )
+
                 snapshot = _compute_evaluation_status(session, auction)
                 blockers = [
                     group for group, info in snapshot.items() if info["status"] != "ok"
