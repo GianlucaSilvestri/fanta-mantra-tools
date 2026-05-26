@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  Eye,
   File,
   Pencil,
   Play,
@@ -33,6 +34,7 @@ const ICONS = {
   check: Check as IconData,
   alert: AlertCircle as IconData,
   search: Search as IconData,
+  eye: Eye as IconData,
 } as const;
 
 export type IconName = keyof typeof ICONS;

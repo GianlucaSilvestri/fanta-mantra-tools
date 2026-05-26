@@ -6,6 +6,8 @@ import { icon } from "../icons";
 import "./auction-evaluations";
 import "./auction-running";
 import "./auction-finished";
+import "./auction-dialog";
+import "./evaluations-view-dialog";
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -69,6 +71,8 @@ export class AuctionPage extends LitElement {
   @state() private loading = true;
   @state() private notFound = false;
   @state() private loadError = "";
+  @state() private editDialogOpen = false;
+  @state() private viewDialogOpen = false;
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -112,6 +116,48 @@ export class AuctionPage extends LitElement {
     void this.load();
   };
 
+  private openEditDialog(): void {
+    this.editDialogOpen = true;
+  }
+
+  private openViewDialog(): void {
+    this.viewDialogOpen = true;
+  }
+
+  private onEditDialogClosed = (): void => {
+    this.editDialogOpen = false;
+  };
+
+  private onViewDialogClosed = (): void => {
+    this.viewDialogOpen = false;
+  };
+
+  private onAuctionSaved = (): void => {
+    this.editDialogOpen = false;
+    void this.load();
+  };
+
+  private renderHeaderAction(status: AuctionStatus) {
+    const btnCls =
+      "w-9 h-9 grid place-items-center rounded border border-transparent text-fg-dim hover:text-fg hover:bg-surface-hover hover:border-line-strong transition-colors";
+    if (status === "INITIAL") {
+      return html`<button
+        type="button"
+        aria-label=${msg("Edit auction")}
+        title=${msg("Edit auction")}
+        @click=${() => this.openEditDialog()}
+        class=${btnCls}
+      >${icon("pencil", { size: 16 })}</button>`;
+    }
+    return html`<button
+      type="button"
+      aria-label=${msg("Review evaluations")}
+      title=${msg("Review evaluations")}
+      @click=${() => this.openViewDialog()}
+      class=${btnCls}
+    >${icon("eye", { size: 16 })}</button>`;
+  }
+
   private goHome(e: MouseEvent): void {
     e.preventDefault();
     window.dispatchEvent(
@@ -152,6 +198,7 @@ export class AuctionPage extends LitElement {
               ${a.name}
             </h1>
             ${this.renderStatusPill(a.status)}
+            ${this.renderHeaderAction(a.status)}
           </div>
           <p class="text-[13px] text-fg-dim mt-1.5 mb-0">
             ${a.description ??
@@ -247,6 +294,20 @@ export class AuctionPage extends LitElement {
                   ${this.renderHeader(this.auction)}
                   ${this.renderCenter(this.auction)}
                 `}
+
+        <auction-dialog
+          mode="edit"
+          .auction=${this.auction}
+          .open=${this.editDialogOpen}
+          @dialog-closed=${this.onEditDialogClosed}
+          @auction-saved=${this.onAuctionSaved}
+        ></auction-dialog>
+
+        <evaluations-view-dialog
+          .auction=${this.auction}
+          .open=${this.viewDialogOpen}
+          @dialog-closed=${this.onViewDialogClosed}
+        ></evaluations-view-dialog>
       </main>
     `;
   }
