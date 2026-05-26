@@ -768,6 +768,7 @@ __metadata:
   dependencies:
     "@tailwindcss/vite": "npm:^4.0.0"
     lit: "npm:^3.2.0"
+    lucide: "npm:^1.16.0"
     tailwindcss: "npm:^4.0.0"
     typescript: "npm:^5.5.0"
     vite: "npm:^5.4.0"
@@ -976,6 +977,13 @@ __metadata:
     lit-element: "npm:^4.2.0"
     lit-html: "npm:^3.3.0"
   checksum: 10c0/11b6175ebffce92f4cf835ddd8a198d49707c27f34b0a7c538d2cb294f6c2fb7ff40aabd3589fcf0c2ed162404faaf2bb7c966fad9024bb9e02d013e2d5aa0b5
+  languageName: node
+  linkType: hard
+
+"lucide@npm:^1.16.0":
+  version: 1.16.0
+  resolution: "lucide@npm:1.16.0"
+  checksum: 10c0/3a1085d16f289c023ad9babb5ceb3bece8a9e686e545ecf4fcb8c47b176cc0a4b3368e61a3a75d63a0af3cc321a8ee4ff511b12884fb4293e49681cbcf27d433
   languageName: node
   linkType: hard
 

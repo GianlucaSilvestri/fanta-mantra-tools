@@ -1,6 +1,8 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
+import { icon } from "../icons";
+
 interface Auction {
   id: number;
   name: string;
@@ -16,11 +18,17 @@ export class AuctionFinished extends LitElement {
 
   override render() {
     return html`
-      <div class="border-2 border-dashed border-slate-300 bg-slate-50 rounded-md p-8 text-center">
-        <div class="text-slate-800 text-lg font-semibold">todo finished</div>
-        <div class="text-sm text-slate-600 mt-2">
-          Auction <strong>${this.auction.name}</strong> is terminated.
-        </div>
+      <div class="rounded-xl border border-line bg-surface text-center py-16 px-6">
+        <div
+          class="w-14 h-14 grid place-items-center mx-auto mb-3.5 rounded-xl border border-line bg-surface text-accent"
+        >${icon("check", { size: 22 })}</div>
+        <h3 class="text-[18px] font-bold text-fg m-0 mb-1.5">
+          Auction complete
+        </h3>
+        <p class="text-[13px] text-fg-dim max-w-[360px] mx-auto m-0">
+          Final rosters and summary stats for <b>${this.auction.name}</b> will
+          appear here. Designs to be defined.
+        </p>
       </div>
     `;
   }

@@ -1,6 +1,8 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 
+import { icon } from "../icons";
+
 const BACKEND_URL = "http://localhost:8000";
 const BASE_CREDITS = 1000;
 
@@ -40,6 +42,21 @@ interface EvaluationStatus {
   goalkeepers: { evaluated: number; target: number; percentage: number; status: StatusKind };
 }
 
+const ROLE_COLORS: Record<string, string> = {
+  Por: "hsl(40, 94%, 52%)",
+  Dc: "hsl(96, 70%, 46%)",
+  Dd: "hsl(96, 70%, 46%)",
+  Ds: "hsl(96, 70%, 46%)",
+  B: "hsl(96, 70%, 46%)",
+  E: "hsl(217, 93%, 52%)",
+  M: "hsl(217, 93%, 52%)",
+  C: "hsl(217, 93%, 52%)",
+  W: "hsl(273, 100%, 61%)",
+  T: "hsl(273, 100%, 61%)",
+  A: "hsl(351, 89%, 53%)",
+  Pc: "hsl(351, 89%, 53%)",
+};
+
 function toAuction(stored: number | null, credits: number): number | null {
   if (stored == null) return null;
   return Math.floor((stored * credits) / BASE_CREDITS);
@@ -49,10 +66,16 @@ function toBase(displayed: number, credits: number): number {
   return Math.floor((displayed * BASE_CREDITS) / credits);
 }
 
-const METRIC_CLASSES: Record<StatusKind, { bar: string; pct: string }> = {
-  under: { bar: "bg-amber-500", pct: "text-amber-700" },
-  ok: { bar: "bg-emerald-600", pct: "text-emerald-700" },
-  over: { bar: "bg-rose-600", pct: "text-rose-700" },
+const FILL_CLS: Record<StatusKind, string> = {
+  under: "bg-warn",
+  ok: "bg-accent [box-shadow:0_0_8px_rgba(4,253,14,0.13)]",
+  over: "bg-danger",
+};
+
+const PCT_CLS: Record<StatusKind, string> = {
+  under: "text-warn",
+  ok: "text-accent",
+  over: "text-danger",
 };
 
 @customElement("auction-evaluations")
@@ -66,6 +89,7 @@ export class AuctionEvaluations extends LitElement {
   @state() private teamFilter = "";
   @state() private roleFilter = "";
   @state() private nameFilter = "";
+  @state() private onlyUneval = false;
   @state() private sortKey: SortKey = "fanta_evaluation";
   @state() private sortDir: "asc" | "desc" = "desc";
   @state() private saveErrors = new Set<number>();
@@ -121,7 +145,7 @@ export class AuctionEvaluations extends LitElement {
       if (!res.ok) return;
       this.status = (await res.json()) as EvaluationStatus;
     } catch {
-      // Leave stale status in place.
+      // leave stale
     }
   }
 
@@ -143,16 +167,6 @@ export class AuctionEvaluations extends LitElement {
     );
   }
 
-  private get startBlockers(): string[] {
-    const s = this.status;
-    if (!s) return ["loading…"];
-    const out: string[] = [];
-    if (s.credits.status !== "ok") out.push(`credits ${s.credits.status}`);
-    if (s.players.status !== "ok") out.push(`players ${s.players.status}`);
-    if (s.goalkeepers.status !== "ok") out.push(`goalkeepers ${s.goalkeepers.status}`);
-    return out;
-  }
-
   private get filteredSorted(): PlayerRow[] {
     const name = this.nameFilter.trim().toLowerCase();
     const team = this.teamFilter;
@@ -161,7 +175,8 @@ export class AuctionEvaluations extends LitElement {
       (p) =>
         (!team || p.team === team) &&
         (!role || p.mantra_roles.includes(role)) &&
-        (!name || p.name.toLowerCase().includes(name)),
+        (!name || p.name.toLowerCase().includes(name)) &&
+        (!this.onlyUneval || p.evaluation == null),
     );
 
     const dir = this.sortDir === "asc" ? 1 : -1;
@@ -325,265 +340,356 @@ export class AuctionEvaluations extends LitElement {
     }
   }
 
-  private renderStartBar() {
-    const blockers = this.startBlockers;
-    const tooltip = this.allGreen
-      ? "All requirements met — ready to start"
-      : `Blocked by: ${blockers.join(", ")}`;
+  private renderBar(value: number, scaleMax: number, okFromPct: number, okToPct: number, statusKind: StatusKind) {
+    const fillPct = Math.min(100, (value / scaleMax) * 100);
     return html`
-      <div class="flex items-center gap-3 flex-wrap">
+      <div
+        class="relative h-2.5 rounded-full bg-app border border-line"
+      >
+        <div
+          class="absolute -top-px -bottom-px border-l border-r border-line-strong bg-accent/[0.06] pointer-events-none"
+          style=${`left:${okFromPct}%; width:${okToPct - okFromPct}%;`}
+        ></div>
+        <div
+          class=${"absolute top-0 bottom-0 left-0 rounded-full transition-[width] duration-200 " +
+          FILL_CLS[statusKind]}
+          style=${`width:${fillPct}%;`}
+        ></div>
+        <div
+          class="absolute -top-1 -bottom-1 w-px bg-white/15"
+          style=${`left:${okFromPct}%;`}
+        ></div>
+        <div
+          class="absolute -top-1 -bottom-1 w-px bg-white/15"
+          style=${`left:${okToPct}%;`}
+        ></div>
+      </div>
+    `;
+  }
+
+  private renderEvalCard() {
+    const s = this.status;
+    if (!s) return nothing;
+
+    const credits = s.credits;
+    const players = s.players;
+    const gk = s.goalkeepers;
+
+    // Bar scales (130% of target gives an "over" zone visualization)
+    const cScale = Math.max(credits.total * 1.3, credits.used * 1.05, 1);
+    const cTargetPct = (credits.total / cScale) * 100;
+    const cBand = 2; // ±2% visual band around the exact target
+
+    const pScale = Math.max(players.max * 1.3, players.evaluated * 1.05, 1);
+    const pOkFrom = (players.min / pScale) * 100;
+    const pOkTo = (players.max / pScale) * 100;
+
+    const gScale = Math.max(gk.target * 1.5, gk.evaluated * 1.05, 1);
+    const gTargetPct = (gk.target / gScale) * 100;
+
+    return html`
+      <div
+        class="rounded-xl border border-line bg-surface p-5 flex flex-col gap-3.5"
+      >
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-[13px] font-bold uppercase tracking-[0.08em] m-0">
+            Evaluation status
+          </h3>
+          <span class="text-[12px] text-fg-muted">
+            Targets × ${this.auction.number_of_auctioners} teams
+          </span>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <div class="text-[13px] font-semibold">Credits spent</div>
+            <div class="text-[12px] text-fg-dim tabular-nums">
+              <span>${credits.used} / ${credits.total}</span>
+              <span class=${"ml-2 font-bold " + PCT_CLS[credits.status]}>
+                ${Math.round(credits.percentage)}%
+              </span>
+            </div>
+          </div>
+          ${this.renderBar(
+            credits.used,
+            cScale,
+            Math.max(0, cTargetPct - cBand),
+            Math.min(100, cTargetPct + cBand),
+            credits.status,
+          )}
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <div class="text-[13px] font-semibold">Players evaluated</div>
+            <div class="text-[12px] text-fg-dim tabular-nums">
+              <span>${players.evaluated} / ${players.min}–${players.max}</span>
+              <span class=${"ml-2 font-bold " + PCT_CLS[players.status]}>
+                ${Math.round(players.percentage)}%
+              </span>
+            </div>
+          </div>
+          ${this.renderBar(players.evaluated, pScale, pOkFrom, pOkTo, players.status)}
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <div class="text-[13px] font-semibold">Goalkeepers evaluated</div>
+            <div class="text-[12px] text-fg-dim tabular-nums">
+              <span>${gk.evaluated} / ${gk.target}</span>
+              <span class=${"ml-2 font-bold " + PCT_CLS[gk.status]}>
+                ${Math.round(gk.percentage)}%
+              </span>
+            </div>
+          </div>
+          ${this.renderBar(
+            gk.evaluated,
+            gScale,
+            Math.max(0, gTargetPct - 3),
+            Math.min(100, gTargetPct + 3),
+            gk.status,
+          )}
+        </div>
+
+        <div class="h-px bg-line my-1"></div>
+
         <button
+          type="button"
           ?disabled=${!this.allGreen || this.starting}
-          title=${tooltip}
           @click=${() => this.startAuction()}
-          class=${"rounded px-4 py-2 text-sm font-semibold text-white shadow-sm transition " +
-          (this.allGreen
-            ? "bg-emerald-600 hover:bg-emerald-700"
-            : "bg-slate-300 cursor-not-allowed")}
+          class="w-full inline-flex items-center justify-center gap-2 px-[18px] py-3 rounded text-[14px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
+          ${icon("play", { size: 14 })}
           ${this.starting ? "Starting…" : "Start auction"}
         </button>
         ${this.allGreen
-          ? html`<span class="text-sm text-emerald-700">
-              All requirements met.
-            </span>`
-          : html`<span class="text-sm text-slate-500">
-              Blocked: ${blockers.join(", ")}.
-            </span>`}
+          ? nothing
+          : html`<p class="text-fg-dim text-[12px] text-center m-0">
+              All three indicators must be in the
+              <span class="text-accent font-bold">ok</span> zone to start.
+            </p>`}
         ${this.startError
-          ? html`<span class="text-sm text-rose-700">${this.startError}</span>`
+          ? html`<p class="text-danger text-[12px] text-center m-0">
+              ${this.startError}
+            </p>`
           : nothing}
       </div>
     `;
   }
 
-  private renderCsvActions() {
+  private renderRoleChips(roles: string[]) {
     return html`
-      <div class="flex items-center gap-2 flex-wrap text-sm">
-        <button
-          @click=${() => this.exportCsv()}
-          ?disabled=${this.csvBusy}
-          class="rounded border border-slate-300 px-3 py-1 bg-white hover:bg-slate-50 disabled:opacity-50"
-        >
-          Export CSV
-        </button>
-        <button
-          @click=${() => this.triggerImport()}
-          ?disabled=${this.csvBusy}
-          class="rounded border border-slate-300 px-3 py-1 bg-white hover:bg-slate-50 disabled:opacity-50"
-        >
-          Import CSV
-        </button>
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          data-csv
-          class="hidden"
-          @change=${(e: Event) => this.onImportFile(e)}
-        />
-        ${this.csvMessage
-          ? html`<span
-              class=${this.csvMessageKind === "err"
-                ? "text-rose-700"
-                : this.csvMessageKind === "ok"
-                  ? "text-emerald-700"
-                  : "text-slate-600 italic"}
-            >${this.csvMessage}</span>`
-          : nothing}
-      </div>
+      <span>
+        ${roles.map(
+          (r) => html`
+            <span
+              class="inline-block text-[10px] font-bold tracking-wide px-1.5 py-px rounded mr-1 text-black min-w-[22px] text-center align-middle"
+              style=${`background: ${ROLE_COLORS[r] ?? "#888"};`}
+            >${r}</span>
+          `,
+        )}
+      </span>
     `;
   }
 
-  private renderIndicator() {
-    const s = this.status;
-    if (!s) return nothing;
-    const a = this.auction;
-    const fmtPct = (p: number) => `${p.toFixed(0)}%`;
-    const barWidth = (p: number) => `${Math.min(p, 100)}%`;
-
-    const metric = (
-      label: string,
-      value: string,
-      kind: StatusKind,
-      percentage: number,
-    ) => {
-      const cls = METRIC_CLASSES[kind];
-      return html`
-        <div class="flex flex-col gap-1">
-          <div class="flex items-baseline gap-2 text-xs text-slate-600">
-            <span>${label}</span>
-            <span>${value}</span>
-            <span class="ml-auto font-semibold text-sm ${cls.pct}">
-              ${fmtPct(percentage)}
-            </span>
-          </div>
-          <div class="h-1.5 rounded bg-slate-200 overflow-hidden">
-            <div
-              class="h-full transition-[width] duration-150 ${cls.bar}"
-              style="width: ${barWidth(percentage)}"
-            ></div>
-          </div>
-        </div>
-      `;
-    };
-
-    return html`
-      <div class="border border-slate-200 rounded-md p-3 bg-slate-50 max-w-xl flex flex-col gap-2">
-        <div class="text-sm font-semibold text-slate-800">
-          ${a.number_of_auctioners} auctioners · ${a.credits_per_team} credits/team
-        </div>
-        ${metric(
-          "Credits spent",
-          `${s.credits.used} / ${s.credits.total}`,
-          s.credits.status,
-          s.credits.percentage,
-        )}
-        ${metric(
-          "Players evaluated",
-          `${s.players.evaluated} / ${s.players.min}–${s.players.max}`,
-          s.players.status,
-          s.players.percentage,
-        )}
-        ${metric(
-          "Goalkeepers evaluated",
-          `${s.goalkeepers.evaluated} / ${s.goalkeepers.target}`,
-          s.goalkeepers.status,
-          s.goalkeepers.percentage,
-        )}
-      </div>
-    `;
-  }
-
-  private headerCell(label: string, key: SortKey) {
-    const arrow =
-      this.sortKey === key
-        ? html`<span class="text-sky-600 ml-1">
-            ${this.sortDir === "asc" ? "▲" : "▼"}
-          </span>`
-        : nothing;
+  private headerCell(label: string, key: SortKey, align: "left" | "right" = "left") {
+    const active = this.sortKey === key;
+    const arrow = active ? (this.sortDir === "asc" ? "↑" : "↓") : "↕";
     return html`
       <th
         @click=${() => this.setSort(key)}
-        class="sticky top-0 bg-slate-100 cursor-pointer select-none px-3 py-2 text-left whitespace-nowrap"
-      >${label}${arrow}</th>
+        class=${"sticky top-0 z-10 bg-surface-2 cursor-pointer select-none px-3 py-[7px] text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap border-b border-line transition-colors " +
+        (active ? "text-fg" : "text-fg-muted hover:text-fg") +
+        (align === "right" ? " text-right" : " text-left")}
+      >
+        ${label}
+        <span class=${"inline-block ml-1 " + (active ? "opacity-100 text-accent" : "opacity-40")}>
+          ${arrow}
+        </span>
+      </th>
     `;
   }
 
   private renderRow(p: PlayerRow, credits: number) {
     const scaledEval = toAuction(p.evaluation, credits);
+    const scaledVal = toAuction(p.fanta_market_value, credits);
+    const hasEval = scaledEval !== null;
     return html`
-      <tr class="border-b border-slate-100">
-        <td class="px-3 py-1.5 whitespace-nowrap">${p.fanta_evaluation ?? ""}</td>
-        <td class="px-3 py-1.5 whitespace-nowrap">
+      <tr class="hover:bg-surface-hover">
+        <td class="px-3 py-[7px] text-[13px] text-right text-fg-muted w-[50px] border-b border-line tabular-nums">
+          ${p.fanta_evaluation ?? ""}
+        </td>
+        <td class="px-3 py-[7px] text-[13px] font-semibold border-b border-line">
           ${p.name}
           ${this.saveErrors.has(p.id)
-            ? html`<span class="text-rose-700 ml-1" title="last save failed">⚠</span>`
+            ? html`<span class="text-danger ml-1" title="last save failed">⚠</span>`
             : nothing}
         </td>
-        <td class="px-3 py-1.5 whitespace-nowrap">${p.team}</td>
-        <td class="px-3 py-1.5 whitespace-nowrap">${p.mantra_roles.join(", ")}</td>
-        <td class="px-3 py-1.5 whitespace-nowrap">${toAuction(p.fanta_market_value, credits) ?? ""}</td>
-        <td class="px-3 py-1.5 whitespace-nowrap">
+        <td class="px-3 py-[7px] text-[13px] text-fg-dim border-b border-line">
+          ${p.team}
+        </td>
+        <td class="px-3 py-[7px] text-[13px] whitespace-nowrap w-px border-b border-line">
+          ${this.renderRoleChips(p.mantra_roles)}
+        </td>
+        <td class="px-3 py-[7px] text-[13px] text-right font-semibold w-[70px] border-b border-line tabular-nums">
+          ${scaledVal ?? ""}
+        </td>
+        <td class="px-3 py-[7px] text-[13px] text-right w-[100px] border-b border-line">
           <input
             type="number"
             min="0"
             step="1"
             .value=${scaledEval === null ? "" : String(scaledEval)}
             @change=${(e: Event) => this.save(p.id, (e.target as HTMLInputElement).value)}
-            class="w-20 rounded border border-slate-300 px-1.5 py-0.5 text-right text-sm"
+            placeholder="—"
+            class=${"w-16 px-2 py-[5px] rounded text-right text-[13px] bg-surface-2 border border-line tabular-nums focus:outline-none focus:border-accent transition-colors " +
+            (hasEval ? "text-accent" : "text-fg-muted")}
           />
         </td>
       </tr>
     `;
   }
 
-  override render() {
-    if (this.loading) return html`<p class="text-slate-600">Loading…</p>`;
-    if (this.loadError)
-      return html`<p class="text-rose-700">Failed to load: ${this.loadError}</p>`;
-
-    const a = this.auction;
-    const credits = a.credits_per_team;
+  private renderTable() {
     const rows = this.filteredSorted;
+    const credits = this.auction.credits_per_team;
+    const csvMsgCls =
+      this.csvMessageKind === "err"
+        ? "text-danger"
+        : this.csvMessageKind === "ok"
+          ? "text-accent"
+          : "text-fg-dim italic";
 
     return html`
-      <div class="flex flex-col gap-4">
-        ${this.renderStartBar()}
-
-        <div class="text-sm text-slate-600">
-          ${a.number_of_auctioners} auctioners ·
-          ${a.credits_per_team} credits/team ·
-          ${a.min_team_size}–${a.max_team_size} players/team
-        </div>
-
-        ${this.renderIndicator()} ${this.renderCsvActions()}
-
-        <div class="flex items-center gap-3 flex-wrap text-sm">
-          <label class="flex items-center gap-2">
-            Team:
-            <select
-              .value=${this.teamFilter}
-              @change=${(e: Event) =>
-                (this.teamFilter = (e.target as HTMLSelectElement).value)}
-              class="rounded border border-slate-300 px-2 py-1"
-            >
-              <option value="">All</option>
-              ${this.teams.map((t) => html`<option value=${t}>${t}</option>`)}
-            </select>
-          </label>
-          <label class="flex items-center gap-2">
-            Role:
+      <div class="rounded-xl border border-line bg-surface overflow-hidden mt-6">
+        <div class="flex flex-wrap gap-2.5 items-center px-4 py-3.5 border-b border-line">
+          <div class="flex gap-2 flex-1 flex-wrap items-center">
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none">
+                ${icon("search", { size: 14 })}
+              </span>
+              <input
+                type="text"
+                placeholder="Search player…"
+                .value=${this.nameFilter}
+                @input=${(e: Event) =>
+                  (this.nameFilter = (e.target as HTMLInputElement).value)}
+                class="bg-app border border-line text-fg rounded px-3 py-2 pl-8 text-[13px] min-w-[200px] max-w-[220px] focus:outline-none focus:border-accent transition-colors"
+              />
+            </div>
             <select
               .value=${this.roleFilter}
               @change=${(e: Event) =>
                 (this.roleFilter = (e.target as HTMLSelectElement).value)}
-              class="rounded border border-slate-300 px-2 py-1"
+              class="bg-app border border-line text-fg rounded px-3 py-2 text-[13px] max-w-[140px] focus:outline-none focus:border-accent"
             >
-              <option value="">All</option>
-              ${this.roles.map((r) => html`<option value=${r}>${r}</option>`)}
+              <option value="">All roles</option>
+              ${this.roles.map(
+                (r) => html`<option value=${r}>${r}</option>`,
+              )}
             </select>
-          </label>
-          <label class="flex items-center gap-2">
-            Name:
+            <select
+              .value=${this.teamFilter}
+              @change=${(e: Event) =>
+                (this.teamFilter = (e.target as HTMLSelectElement).value)}
+              class="bg-app border border-line text-fg rounded px-3 py-2 text-[13px] max-w-[200px] focus:outline-none focus:border-accent"
+            >
+              <option value="">All Serie A teams</option>
+              ${this.teams.map(
+                (t) => html`<option value=${t}>${t}</option>`,
+              )}
+            </select>
+          </div>
+          <label class="inline-flex items-center gap-1.5 text-[12px] text-fg-dim select-none cursor-pointer">
             <input
-              type="text"
-              placeholder="e.g. mart"
-              .value=${this.nameFilter}
-              @input=${(e: Event) =>
-                (this.nameFilter = (e.target as HTMLInputElement).value)}
-              class="rounded border border-slate-300 px-2 py-1"
+              type="checkbox"
+              .checked=${this.onlyUneval}
+              @change=${(e: Event) =>
+                (this.onlyUneval = (e.target as HTMLInputElement).checked)}
+              style="accent-color: var(--color-accent);"
             />
+            Only unevaluated
           </label>
-          <span class="ml-auto text-xs text-slate-500">
-            ${rows.length} / ${this.players.length} players
-          </span>
         </div>
 
-        <div class="overflow-x-auto border border-slate-200 rounded">
-          <table class="w-full text-sm border-collapse">
+        <div class="max-h-[60vh] overflow-auto">
+          <table class="w-full border-collapse">
             <thead>
               <tr>
-                ${this.headerCell("A", "fanta_evaluation")}
+                ${this.headerCell("A", "fanta_evaluation", "right")}
                 ${this.headerCell("Name", "name")}
                 ${this.headerCell("Team", "team")}
-                <th class="sticky top-0 bg-slate-100 px-3 py-2 text-left whitespace-nowrap">
-                  Roles
-                </th>
-                ${this.headerCell("Value", "fanta_market_value")}
-                ${this.headerCell("Evaluation", "evaluation")}
+                <th
+                  class="sticky top-0 z-10 bg-surface-2 px-3 py-[7px] text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap text-fg-muted border-b border-line"
+                >Roles</th>
+                ${this.headerCell("Value", "fanta_market_value", "right")}
+                ${this.headerCell("Evaluation", "evaluation", "right")}
               </tr>
             </thead>
             <tbody>
               ${rows.length === 0
                 ? html`<tr>
-                    <td colspan="6" class="px-3 py-4 text-slate-500">
-                      No players match the filters.
-                    </td>
+                    <td
+                      colspan="6"
+                      class="text-center py-8 text-fg-muted text-[13px]"
+                    >No players match these filters</td>
                   </tr>`
                 : rows.map((p) => this.renderRow(p, credits))}
             </tbody>
           </table>
         </div>
+
+        <div class="flex justify-between items-center px-4 py-3 border-t border-line text-[12px] text-fg-dim flex-wrap gap-2">
+          <div>${rows.length} of ${this.players.length} players</div>
+          <div class="flex items-center gap-2">
+            ${this.csvMessage
+              ? html`<span class=${"text-[12px] " + csvMsgCls}>
+                  ${this.csvMessage}
+                </span>`
+              : nothing}
+            <button
+              type="button"
+              @click=${() => this.exportCsv()}
+              ?disabled=${this.csvBusy}
+              class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
+            >Export CSV</button>
+            <button
+              type="button"
+              @click=${() => this.triggerImport()}
+              ?disabled=${this.csvBusy}
+              class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
+            >Import CSV</button>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              data-csv
+              class="hidden"
+              @change=${(e: Event) => this.onImportFile(e)}
+            />
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  override render() {
+    if (this.loading) return html`<p class="text-fg-dim">Loading…</p>`;
+    if (this.loadError)
+      return html`<p class="text-danger">Failed to load: ${this.loadError}</p>`;
+
+    return html`
+      <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
+        <div class="min-w-0">
+          <h2 class="text-[18px] font-bold m-0 mb-1">Evaluate players</h2>
+          <p class="text-[13px] text-fg-dim m-0">
+            Enter the maximum credits you'd spend on each player. Saves
+            automatically.
+          </p>
+          ${this.renderTable()}
+        </div>
+        <aside class="flex flex-col gap-4 lg:sticky lg:top-[76px]">
+          ${this.renderEvalCard()}
+        </aside>
       </div>
     `;
   }

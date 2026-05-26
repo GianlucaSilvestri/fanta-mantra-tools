@@ -1,6 +1,8 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 
+import { icon } from "../icons";
+
 const BACKEND_URL = "http://localhost:8000";
 
 type DialogMode = "create" | "edit";
@@ -35,13 +37,11 @@ interface FormState {
   number_of_goalkeepers: number;
 }
 
-const PREF_FIELDS: { key: keyof Omit<FormState, "name" | "description">; label: string; min: number }[] = [
-  { key: "number_of_auctioners", label: "Auctioners", min: 1 },
-  { key: "credits_per_team", label: "Credits per team", min: 1 },
-  { key: "min_team_size", label: "MIN players / team", min: 1 },
-  { key: "max_team_size", label: "MAX players / team", min: 1 },
-  { key: "number_of_goalkeepers", label: "Goalkeepers / team", min: 0 },
-];
+const STATUS_LABELS: Record<AuctionStatus, string> = {
+  INITIAL: "Initial",
+  IN_PROGRESS: "In Progress",
+  TERMINATED: "Terminated",
+};
 
 const DEFAULT_FORM: FormState = {
   name: "",
@@ -53,6 +53,12 @@ const DEFAULT_FORM: FormState = {
   number_of_goalkeepers: 3,
 };
 
+const inputCls =
+  "w-full bg-app border border-line text-fg rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent focus:bg-surface-2 transition-colors";
+
+const labelCls =
+  "text-[11px] font-semibold uppercase tracking-wider text-fg-muted";
+
 @customElement("auction-dialog")
 export class AuctionDialog extends LitElement {
   @property({ type: String }) mode: DialogMode = "create";
@@ -60,9 +66,7 @@ export class AuctionDialog extends LitElement {
   @property({ type: Boolean }) open = false;
 
   @state() private form: FormState = { ...DEFAULT_FORM };
-  /** Create mode only: pending team names entered in the form. */
   @state() private newTeams: string[] = [""];
-  /** Edit mode only: the saved team list as currently in the DB. */
   @state() private savedTeams: Team[] = [];
   @state() private newTeamDraft = "";
   @state() private busy = false;
@@ -84,7 +88,6 @@ export class AuctionDialog extends LitElement {
         if (this.dialogEl.open) this.dialogEl.close();
       }
     } else if (changed.has("auction") && this.open) {
-      // Auction prop refreshed (e.g. after a team add/remove); resync teams.
       this.savedTeams = this.auction?.teams ?? [];
     }
   }
@@ -130,7 +133,11 @@ export class AuctionDialog extends LitElement {
   }
 
   private addNewTeamSlot(): void {
-    this.newTeams = [...this.newTeams, ""];
+    if (!this.newTeamDraft.trim()) return;
+    const next = [...this.newTeams.filter((t) => t.trim()), this.newTeamDraft.trim()];
+    if (next.length > this.form.number_of_auctioners) return;
+    this.newTeams = next;
+    this.newTeamDraft = "";
   }
 
   private removeNewTeamSlot(idx: number): void {
@@ -143,6 +150,11 @@ export class AuctionDialog extends LitElement {
     if (!this.auction) return;
     const name = this.newTeamDraft.trim();
     if (!name) return;
+    if (this.savedTeams.length >= this.form.number_of_auctioners) {
+      this.messageKind = "err";
+      this.message = `Cannot add more than ${this.form.number_of_auctioners} teams (auctioners cap)`;
+      return;
+    }
     try {
       const res = await fetch(
         `${BACKEND_URL}/auctions/${this.auction.id}/teams`,
@@ -203,9 +215,16 @@ export class AuctionDialog extends LitElement {
 
     try {
       if (this.mode === "create") {
-        const teams = this.newTeams.map((t) => t.trim()).filter((t) => t.length > 0);
+        const teams = [...this.newTeams, this.newTeamDraft]
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0);
         if (new Set(teams).size !== teams.length) {
           throw new Error("Team names must be unique");
+        }
+        if (teams.length > this.form.number_of_auctioners) {
+          throw new Error(
+            `Cannot have more than ${this.form.number_of_auctioners} teams (auctioners cap)`,
+          );
         }
         const body = {
           name: this.form.name.trim(),
@@ -271,36 +290,80 @@ export class AuctionDialog extends LitElement {
     );
   }
 
-  private renderCreateTeams() {
+  private renderLockedWarning(status: AuctionStatus) {
     return html`
-      <div class="flex flex-col gap-2">
-        <strong class="text-sm">Teams (optional — can add later)</strong>
-        <div class="flex flex-col gap-2 max-w-md">
+      <div
+        class="flex items-center gap-2.5 p-3 mb-4 rounded text-[12px] text-warn border border-warn/25 bg-warn/[0.08]"
+      >
+        ${icon("alert", { size: 14 })}
+        <span>
+          This auction is
+          <b>${STATUS_LABELS[status]}</b>. Most fields are locked — only the
+          name can be edited.
+        </span>
+      </div>
+    `;
+  }
+
+  private renderCreateTeams() {
+    const teams = this.newTeams;
+    const cap = this.form.number_of_auctioners;
+    const atCap = teams.length >= cap;
+    return html`
+      <div class="mb-3.5">
+        <div class="flex items-baseline justify-between mb-1.5">
+          <div class=${labelCls}>Teams (${teams.length} / ${cap})</div>
+          ${atCap
+            ? html`<div class="text-[11px] text-warn">
+                Auctioners cap reached
+              </div>`
+            : nothing}
+        </div>
+        <div
+          class="flex flex-col gap-1.5 bg-app border border-line rounded p-2.5 max-h-[240px] overflow-y-auto"
+        >
           ${this.newTeams.map(
             (t, i) => html`
-              <div class="flex items-center gap-2">
+              <div
+                class="flex items-center gap-2 bg-surface rounded px-2 py-1.5"
+              >
                 <input
-                  type="text"
-                  placeholder="team name"
                   .value=${t}
                   @input=${(e: Event) =>
                     this.setNewTeam(i, (e.target as HTMLInputElement).value)}
-                  class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                  placeholder="Team name"
+                  class="flex-1 bg-transparent border-0 text-fg text-[13px] focus:outline-none p-0"
                 />
                 <button
                   type="button"
+                  aria-label="Remove team"
                   @click=${() => this.removeNewTeamSlot(i)}
-                  class="text-sm text-rose-700 hover:underline"
-                >remove</button>
+                  class="w-7 h-7 grid place-items-center rounded text-danger hover:bg-danger/10"
+                >${icon("trash", { size: 14 })}</button>
               </div>
             `,
           )}
-          <div>
+          <div class="flex gap-1.5 p-1">
+            <input
+              .value=${this.newTeamDraft}
+              ?disabled=${atCap}
+              @input=${(e: Event) =>
+                (this.newTeamDraft = (e.target as HTMLInputElement).value)}
+              @keydown=${(e: KeyboardEvent) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  this.addNewTeamSlot();
+                }
+              }}
+              placeholder=${atCap ? "Increase auctioners to add more" : "+ add team and press Enter"}
+              class="flex-1 bg-transparent border-0 text-fg text-[13px] px-2 py-1.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            />
             <button
               type="button"
+              ?disabled=${atCap || !this.newTeamDraft.trim()}
               @click=${() => this.addNewTeamSlot()}
-              class="text-sm text-sky-700 hover:underline"
-            >+ Add team</button>
+              class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40 disabled:cursor-not-allowed"
+            >Add</button>
           </div>
         </div>
       </div>
@@ -308,29 +371,46 @@ export class AuctionDialog extends LitElement {
   }
 
   private renderEditTeams() {
+    const cap = this.form.number_of_auctioners;
+    const atCap = this.savedTeams.length >= cap;
     return html`
-      <div class="flex flex-col gap-2">
-        <strong class="text-sm">Teams</strong>
-        <div class="flex flex-col gap-1 max-w-md">
+      <div class="mb-3.5">
+        <div class="flex items-baseline justify-between mb-1.5">
+          <div class=${labelCls}>
+            Teams (${this.savedTeams.length} / ${cap})
+          </div>
+          ${atCap
+            ? html`<div class="text-[11px] text-warn">
+                Auctioners cap reached
+              </div>`
+            : nothing}
+        </div>
+        <div
+          class="flex flex-col gap-1.5 bg-app border border-line rounded p-2.5 max-h-[240px] overflow-y-auto"
+        >
           ${this.savedTeams.length === 0
-            ? html`<div class="text-sm text-slate-500">No teams yet.</div>`
+            ? html`<div class="text-[13px] text-fg-muted italic px-1 py-1">
+                No teams yet.
+              </div>`
             : this.savedTeams.map(
                 (t) => html`
-                  <div class="flex items-center gap-2 text-sm">
-                    <span class="flex-1">${t.team_name}</span>
+                  <div
+                    class="flex items-center gap-2 bg-surface rounded px-2 py-1.5"
+                  >
+                    <span class="flex-1 text-[13px]">${t.team_name}</span>
                     <button
                       type="button"
+                      aria-label="Remove team"
                       @click=${() => this.removeSavedTeam(t.id)}
-                      class="text-rose-700 hover:underline"
-                    >remove</button>
+                      class="w-7 h-7 grid place-items-center rounded text-danger hover:bg-danger/10"
+                    >${icon("trash", { size: 14 })}</button>
                   </div>
                 `,
               )}
-          <div class="flex items-center gap-2 mt-2">
+          <div class="flex gap-1.5 p-1">
             <input
-              type="text"
-              placeholder="new team name"
               .value=${this.newTeamDraft}
+              ?disabled=${atCap}
               @input=${(e: Event) =>
                 (this.newTeamDraft = (e.target as HTMLInputElement).value)}
               @keydown=${(e: KeyboardEvent) => {
@@ -339,13 +419,15 @@ export class AuctionDialog extends LitElement {
                   void this.addSavedTeam();
                 }
               }}
-              class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+              placeholder=${atCap ? "Increase auctioners to add more" : "+ add team and press Enter"}
+              class="flex-1 bg-transparent border-0 text-fg text-[13px] px-2 py-1.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
             />
             <button
               type="button"
+              ?disabled=${atCap || !this.newTeamDraft.trim()}
               @click=${() => this.addSavedTeam()}
-              class="text-sm text-sky-700 hover:underline"
-            >add</button>
+              class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40 disabled:cursor-not-allowed"
+            >Add</button>
           </div>
         </div>
       </div>
@@ -354,97 +436,175 @@ export class AuctionDialog extends LitElement {
 
   override render() {
     const title = this.mode === "create" ? "Create auction" : "Edit auction";
+    const locked = this.mode === "edit" && this.auction
+      ? this.auction.status !== "INITIAL"
+      : false;
     const messageCls =
       this.messageKind === "err"
-        ? "text-rose-700"
+        ? "text-danger"
         : this.messageKind === "ok"
-          ? "text-emerald-700"
-          : "text-slate-600 italic";
+          ? "text-accent"
+          : "text-fg-dim italic";
 
     return html`
       <dialog
         @close=${() => this.close()}
         @cancel=${() => this.close()}
-        class="rounded-lg shadow-xl p-0 backdrop:bg-slate-900/40 max-w-3xl w-full"
+        class="fixed inset-0 m-auto bg-surface text-fg border border-line-strong rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.5)] p-0 w-[min(720px,calc(100vw-3rem))] max-h-[90vh] backdrop:bg-black/70 backdrop:backdrop-blur-sm"
       >
-        <form
-          @submit=${this.submit}
-          class="flex flex-col gap-4 p-5"
-        >
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold">${title}</h3>
+        <form @submit=${this.submit} class="flex flex-col max-h-[90vh]">
+          <div
+            class="flex items-center justify-between px-[22px] py-[18px] border-b border-line"
+          >
+            <h3 class="text-[16px] font-bold m-0">${title}</h3>
             <button
               type="button"
-              @click=${() => this.close()}
               aria-label="Close"
-              class="text-slate-500 hover:text-slate-800 text-xl leading-none"
-            >×</button>
+              @click=${() => this.close()}
+              class="w-9 h-9 grid place-items-center rounded text-fg-dim hover:bg-surface-hover hover:text-fg"
+            >${icon("x", { size: 18 })}</button>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label class="flex flex-col gap-1 text-sm">
-              Name
+          <div class="px-[22px] py-[22px] overflow-y-auto">
+            ${locked && this.auction
+              ? this.renderLockedWarning(this.auction.status)
+              : nothing}
+
+            <div class="mb-3.5">
+              <label class=${labelCls + " block mb-1.5"}>Name</label>
               <input
                 type="text"
                 required
+                ?autofocus=${this.mode === "create"}
                 .value=${this.form.name}
                 @input=${(e: Event) =>
                   this.setForm("name", (e.target as HTMLInputElement).value)}
-                class="rounded border border-slate-300 px-2 py-1.5"
+                placeholder="e.g. Lega Boys 2025/26"
+                class=${inputCls}
               />
-            </label>
-            <label class="flex flex-col gap-1 text-sm">
-              Description
+            </div>
+
+            <div class="mb-3.5">
+              <label class=${labelCls + " block mb-1.5"}>Description</label>
               <input
                 type="text"
                 .value=${this.form.description}
+                ?disabled=${locked}
                 @input=${(e: Event) =>
                   this.setForm("description", (e.target as HTMLInputElement).value)}
-                class="rounded border border-slate-300 px-2 py-1.5"
+                class=${inputCls + " disabled:opacity-40 disabled:cursor-not-allowed"}
               />
-            </label>
-            ${PREF_FIELDS.map(
-              (f) => html`
-                <label class="flex flex-col gap-1 text-sm">
-                  ${f.label}
-                  <input
-                    type="number"
-                    min=${String(f.min)}
-                    step="1"
-                    required
-                    .value=${String(this.form[f.key])}
-                    @input=${(e: Event) => {
-                      const n = Number.parseInt(
-                        (e.target as HTMLInputElement).value,
-                        10,
-                      );
-                      if (Number.isFinite(n)) this.setForm(f.key, n);
-                    }}
-                    class="rounded border border-slate-300 px-2 py-1.5"
-                  />
-                </label>
-              `,
-            )}
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>Credits per team</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  .value=${String(this.form.credits_per_team)}
+                  ?disabled=${locked}
+                  @input=${(e: Event) => {
+                    const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                    if (Number.isFinite(n)) this.setForm("credits_per_team", n);
+                  }}
+                  class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+                />
+              </div>
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>Goalkeepers</label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  .value=${String(this.form.number_of_goalkeepers)}
+                  ?disabled=${locked}
+                  @input=${(e: Event) => {
+                    const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                    if (Number.isFinite(n)) this.setForm("number_of_goalkeepers", n);
+                  }}
+                  class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>Min players / team</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  .value=${String(this.form.min_team_size)}
+                  ?disabled=${locked}
+                  @input=${(e: Event) => {
+                    const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                    if (Number.isFinite(n)) this.setForm("min_team_size", n);
+                  }}
+                  class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+                />
+              </div>
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>Max players / team</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  .value=${String(this.form.max_team_size)}
+                  ?disabled=${locked}
+                  @input=${(e: Event) => {
+                    const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                    if (Number.isFinite(n)) this.setForm("max_team_size", n);
+                  }}
+                  class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+                />
+              </div>
+            </div>
+
+            <div class="mb-3.5">
+              <label class=${labelCls + " block mb-1.5"}>Auctioners</label>
+              <input
+                type="number"
+                min="1"
+                required
+                .value=${String(this.form.number_of_auctioners)}
+                ?disabled=${locked}
+                @input=${(e: Event) => {
+                  const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                  if (Number.isFinite(n)) this.setForm("number_of_auctioners", n);
+                }}
+                class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+              />
+            </div>
+
+            ${locked
+              ? nothing
+              : this.mode === "create"
+                ? this.renderCreateTeams()
+                : this.renderEditTeams()}
           </div>
 
-          ${this.mode === "create" ? this.renderCreateTeams() : this.renderEditTeams()}
-
-          <div class="flex items-center gap-3 mt-2">
-            <button
-              type="submit"
-              ?disabled=${this.busy}
-              class="rounded bg-sky-700 px-4 py-1.5 text-white text-sm hover:bg-sky-800 disabled:opacity-50"
-            >
-              ${this.mode === "create" ? "Create" : "Save"}
-            </button>
+          <div
+            class="flex items-center gap-2 justify-end px-[22px] py-[14px] border-t border-line"
+          >
+            ${this.message
+              ? html`<span class=${"mr-auto text-[12px] " + messageCls}>
+                  ${this.message}
+                </span>`
+              : nothing}
             <button
               type="button"
               @click=${() => this.close()}
-              class="rounded border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+              class="px-3.5 py-2 rounded text-[13px] font-semibold border border-transparent bg-transparent text-fg hover:bg-surface-hover hover:border-line"
             >Cancel</button>
-            ${this.message
-              ? html`<span class="text-sm ${messageCls}">${this.message}</span>`
-              : nothing}
+            <button
+              type="submit"
+              ?disabled=${this.busy}
+              class="px-3.5 py-2 rounded text-[13px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ${this.mode === "create" ? "Create auction" : "Save changes"}
+            </button>
           </div>
         </form>
       </dialog>

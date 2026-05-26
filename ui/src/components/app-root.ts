@@ -1,13 +1,31 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
+import { icon } from "../icons";
 import "./home-page";
 import "./settings-page";
+import "./auction-page";
+
+type Route =
+  | { kind: "home" }
+  | { kind: "settings" }
+  | { kind: "auction"; auctionId: number }
+  | { kind: "not-found" };
+
+function parseRoute(pathname: string): Route {
+  if (pathname === "/" || pathname === "") return { kind: "home" };
+  if (pathname === "/settings") return { kind: "settings" };
+  const m = pathname.match(/^\/auction\/(\d+)\/?$/);
+  if (m) {
+    const id = Number(m[1]);
+    if (Number.isFinite(id) && id > 0) return { kind: "auction", auctionId: id };
+  }
+  return { kind: "not-found" };
+}
 
 @customElement("app-root")
 export class AppRoot extends LitElement {
   @state() private path: string = window.location.pathname;
-  @state() private search: string = window.location.search;
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -27,64 +45,88 @@ export class AppRoot extends LitElement {
 
   private onPopState = (): void => {
     this.path = window.location.pathname;
-    this.search = window.location.search;
   };
 
-  private onAppNavigate = (event: CustomEvent<{ path: string; search?: string }>): void => {
-    const { path, search = "" } = event.detail;
-    const url = path + (search.startsWith("?") || search === "" ? search : `?${search}`);
-    if (this.path !== path || this.search !== search) {
-      history.pushState(null, "", url);
+  private onAppNavigate = (event: CustomEvent<{ path: string }>): void => {
+    const { path } = event.detail;
+    if (this.path !== path) {
+      history.pushState(null, "", path);
       this.path = path;
-      this.search = search;
+      window.scrollTo(0, 0);
     }
   };
 
   private navigate(event: MouseEvent, to: string): void {
     event.preventDefault();
-    if (this.path !== to || this.search !== "") {
+    if (this.path !== to) {
       history.pushState(null, "", to);
       this.path = to;
-      this.search = "";
+      window.scrollTo(0, 0);
     }
   }
 
   private renderPage() {
-    switch (this.path) {
-      case "/settings":
-        return html`<settings-page></settings-page>`;
-      case "/":
+    const route = parseRoute(this.path);
+    switch (route.kind) {
+      case "home":
         return html`<home-page></home-page>`;
-      default:
-        return html`<p class="text-slate-600">
-          Not found: <code class="font-mono">${this.path}</code>
-        </p>`;
+      case "settings":
+        return html`<settings-page></settings-page>`;
+      case "auction":
+        return html`<auction-page .auctionId=${route.auctionId}></auction-page>`;
+      case "not-found":
+        return html`
+          <main class="mx-auto max-w-screen-xl px-6 py-12">
+            <p class="text-fg-dim">
+              Not found:
+              <code class="font-mono text-fg">${this.path}</code>
+            </p>
+          </main>
+        `;
     }
   }
 
-  private linkClass(active: boolean): string {
-    const base = "text-sky-700 no-underline hover:underline";
-    return active ? `${base} font-semibold text-slate-900` : base;
-  }
-
   override render() {
+    const homeActive = this.path === "/" || this.path.startsWith("/auction/");
+    const settingsActive = this.path === "/settings";
     return html`
-      <div class="mx-auto max-w-screen-2xl px-6 py-6">
-        <h1 class="text-2xl font-bold tracking-tight">Fanta Mantra</h1>
-        <nav class="flex gap-4 border-b border-slate-200 pb-2 mt-3 mb-6">
+      <header
+        class="sticky top-0 z-50 h-14 px-6 flex items-center gap-5 border-b border-line bg-app/85 backdrop-blur-md"
+      >
+        <a
+          href="/"
+          class="flex items-center gap-2.5 font-bold tracking-tight text-[15px] text-fg"
+          @click=${(e: MouseEvent) => this.navigate(e, "/")}
+        >
+          <span
+            class="w-2.5 h-2.5 rounded-full bg-accent animate-dot-pulse"
+            style="box-shadow: 0 0 12px var(--color-accent);"
+          ></span>
+          <span>fantarincag</span>
+        </a>
+        <nav class="flex gap-1 ml-3">
           <a
             href="/"
-            class=${this.linkClass(this.path === "/")}
+            class=${"px-3 py-1.5 rounded text-[13px] font-medium transition-colors " +
+            (homeActive
+              ? "text-accent"
+              : "text-fg-dim hover:text-fg hover:bg-surface")}
             @click=${(e: MouseEvent) => this.navigate(e, "/")}
           >Home</a>
-          <a
-            href="/settings"
-            class=${this.linkClass(this.path === "/settings")}
-            @click=${(e: MouseEvent) => this.navigate(e, "/settings")}
-          >Settings</a>
         </nav>
-        ${this.renderPage()}
-      </div>
+        <div class="flex-1"></div>
+        <a
+          href="/settings"
+          aria-label="Settings"
+          title="Settings"
+          class=${"w-9 h-9 grid place-items-center rounded border transition-colors " +
+          (settingsActive
+            ? "text-accent border-line"
+            : "text-fg-dim border-transparent hover:text-fg hover:bg-surface")}
+          @click=${(e: MouseEvent) => this.navigate(e, "/settings")}
+        >${icon("settings", { size: 18 })}</a>
+      </header>
+      ${this.renderPage()}
     `;
   }
 }

@@ -1,10 +1,8 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
+import { icon } from "../icons";
 import "./auction-dialog";
-import "./auction-evaluations";
-import "./auction-running";
-import "./auction-finished";
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -33,16 +31,42 @@ interface Auction {
 
 type DialogMode = "create" | "edit";
 
-const STATUS_BADGE: Record<AuctionStatus, string> = {
-  INITIAL: "bg-amber-100 text-amber-800 border-amber-200",
-  IN_PROGRESS: "bg-sky-100 text-sky-800 border-sky-200",
-  TERMINATED: "bg-slate-200 text-slate-700 border-slate-300",
+const STATUS_LABELS: Record<AuctionStatus, string> = {
+  INITIAL: "Initial",
+  IN_PROGRESS: "In Progress",
+  TERMINATED: "Terminated",
 };
+
+const STATUS_PILL: Record<AuctionStatus, string> = {
+  INITIAL:
+    "text-fg-dim border-line-strong bg-surface",
+  IN_PROGRESS:
+    "text-accent border-accent/30 bg-accent/10",
+  TERMINATED:
+    "text-fg-muted border-line bg-transparent",
+};
+
+const STATUS_DOT: Record<AuctionStatus, string> = {
+  INITIAL: "bg-fg-dim",
+  IN_PROGRESS:
+    "bg-accent animate-dot-pulse [box-shadow:0_0_6px_var(--color-accent)]",
+  TERMINATED: "bg-fg-muted",
+};
+
+const PRIMARY_LABEL: Record<AuctionStatus, string> = {
+  INITIAL: "Continue setup",
+  IN_PROGRESS: "Resume auction",
+  TERMINATED: "View results",
+};
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  return iso.slice(0, 10);
+}
 
 @customElement("home-page")
 export class HomePage extends LitElement {
   @state() private auctions: Auction[] = [];
-  @state() private selectedAuctionId: number | null = null;
   @state() private loading = true;
   @state() private loadError = "";
 
@@ -56,35 +80,7 @@ export class HomePage extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
-    this.selectedAuctionId = this.readSelectionFromUrl();
-    window.addEventListener("popstate", this.onPopState);
     void this.loadAuctions();
-  }
-
-  override disconnectedCallback(): void {
-    window.removeEventListener("popstate", this.onPopState);
-    super.disconnectedCallback();
-  }
-
-  private onPopState = (): void => {
-    this.selectedAuctionId = this.readSelectionFromUrl();
-    if (this.selectedAuctionId != null) {
-      void this.ensureAuctionDetail(this.selectedAuctionId);
-    }
-  };
-
-  private readSelectionFromUrl(): number | null {
-    const raw = new URLSearchParams(window.location.search).get("auction_id");
-    if (raw == null) return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-
-  private writeSelectionToUrl(id: number | null): void {
-    const url = id == null ? "/" : `/?auction_id=${id}`;
-    if (url !== window.location.pathname + window.location.search) {
-      history.pushState(null, "", url);
-    }
   }
 
   private async loadAuctions(): Promise<void> {
@@ -94,17 +90,7 @@ export class HomePage extends LitElement {
       const res = await fetch(`${BACKEND_URL}/auctions`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.auctions = (await res.json()) as Auction[];
-      // If the URL points at an auction that no longer exists, clear selection.
-      if (
-        this.selectedAuctionId != null &&
-        !this.auctions.some((a) => a.id === this.selectedAuctionId)
-      ) {
-        this.selectedAuctionId = null;
-        this.writeSelectionToUrl(null);
-      }
-      if (this.selectedAuctionId != null) {
-        await this.ensureAuctionDetail(this.selectedAuctionId);
-      }
+      await Promise.all(this.auctions.map((a) => this.ensureAuctionDetail(a.id)));
     } catch (err) {
       this.loadError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -115,28 +101,21 @@ export class HomePage extends LitElement {
   private async ensureAuctionDetail(id: number): Promise<void> {
     const idx = this.auctions.findIndex((a) => a.id === id);
     if (idx === -1) return;
-    if (this.auctions[idx].teams) return; // already detailed
+    if (this.auctions[idx].teams) return;
     try {
       const res = await fetch(`${BACKEND_URL}/auctions/${id}`);
       if (!res.ok) return;
       const detail = (await res.json()) as Auction;
       this.auctions = this.auctions.map((a) => (a.id === id ? detail : a));
     } catch {
-      // Best-effort enrichment; cards still render without teams.
+      // best-effort
     }
   }
 
-  private selectAuction(id: number): void {
-    if (this.selectedAuctionId === id) return;
-    this.selectedAuctionId = id;
-    this.writeSelectionToUrl(id);
-    void this.ensureAuctionDetail(id);
-  }
-
-  private clearSelection(): void {
-    if (this.selectedAuctionId == null) return;
-    this.selectedAuctionId = null;
-    this.writeSelectionToUrl(null);
+  private navigateToAuction(id: number): void {
+    window.dispatchEvent(
+      new CustomEvent("app-navigate", { detail: { path: `/auction/${id}` } }),
+    );
   }
 
   private openCreateDialog(): void {
@@ -156,18 +135,8 @@ export class HomePage extends LitElement {
     this.dialogOpen = false;
   };
 
-  private onAuctionSaved = (event: Event): void => {
-    const detail = (event as CustomEvent<{ auction: Auction }>).detail;
+  private onAuctionSaved = (): void => {
     this.dialogOpen = false;
-    void this.loadAuctions().then(() => {
-      // Auto-select newly created auction so user sees the panel.
-      if (this.dialogMode === "create" && detail?.auction) {
-        this.selectAuction(detail.auction.id);
-      }
-    });
-  };
-
-  private onAuctionStarted = (): void => {
     void this.loadAuctions();
   };
 
@@ -177,58 +146,134 @@ export class HomePage extends LitElement {
     try {
       const res = await fetch(`${BACKEND_URL}/auctions/${a.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      if (this.selectedAuctionId === a.id) {
-        this.clearSelection();
-      }
       await this.loadAuctions();
     } catch (err) {
       alert(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  private get selectedAuction(): Auction | null {
-    if (this.selectedAuctionId == null) return null;
-    return this.auctions.find((a) => a.id === this.selectedAuctionId) ?? null;
+  private renderStatusPill(status: AuctionStatus) {
+    return html`
+      <span
+        class=${"inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full text-[11px] font-semibold uppercase tracking-wider border " +
+        STATUS_PILL[status]}
+      >
+        <span class=${"w-1.5 h-1.5 rounded-full " + STATUS_DOT[status]}></span>
+        ${STATUS_LABELS[status]}
+      </span>
+    `;
+  }
+
+  private renderTeamChips(a: Auction) {
+    const teams = a.teams ?? [];
+    const visible = teams.slice(0, 5);
+    const hidden = teams.length - visible.length;
+    if (teams.length === 0) {
+      return html`
+        <div class="text-[12px] text-fg-muted italic">No teams yet</div>
+      `;
+    }
+    return html`
+      <div class="flex flex-wrap gap-1 max-h-[50px] overflow-hidden">
+        ${visible.map(
+          (t) => html`
+            <span
+              class="text-[11px] px-1.5 py-[3px] rounded bg-app border border-line text-fg-dim"
+            >${t.team_name}</span>
+          `,
+        )}
+        ${hidden > 0
+          ? html`<span
+              class="text-[11px] px-1.5 py-[3px] rounded border border-dashed border-line text-fg-muted"
+            >+${hidden} more</span>`
+          : nothing}
+      </div>
+    `;
   }
 
   private renderAuctionCard(a: Auction) {
-    const isSelected = a.id === this.selectedAuctionId;
-    const canEdit = a.status === "INITIAL";
-    const cardCls =
-      "rounded-lg border bg-white p-3 shadow-sm cursor-pointer transition " +
-      (isSelected
-        ? "border-sky-500 ring-2 ring-sky-500/30"
-        : "border-slate-200 hover:border-slate-300");
     return html`
-      <div class=${cardCls} @click=${() => this.selectAuction(a.id)}>
-        <div class="flex items-start gap-2 justify-between">
-          <h4 class="font-semibold text-sm leading-tight">${a.name}</h4>
-          <span
-            class=${"text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border " +
-            STATUS_BADGE[a.status]}
-          >${a.status}</span>
+      <div
+        class="group relative flex flex-col gap-4 p-5 rounded-xl border border-line bg-surface transition-colors hover:border-line-strong"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h3 class="text-[17px] font-bold tracking-tight m-0 truncate">${a.name}</h3>
+            <div class="text-[12px] text-fg-muted mt-0.5 truncate">
+              ${a.description ?? `created ${formatDate(a.created_at)}`}
+            </div>
+          </div>
+          ${this.renderStatusPill(a.status)}
         </div>
-        <div class="text-xs text-slate-600 mt-1 min-h-[1rem]">
-          ${a.description ?? ""}
+
+        <div
+          class="grid grid-cols-4 gap-2.5 py-3 border-y border-line"
+        >
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <div class="text-[18px] font-bold tracking-tight tabular-nums">
+              ${a.number_of_teams}
+            </div>
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              Teams
+            </div>
+          </div>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <div class="text-[18px] font-bold tracking-tight tabular-nums text-accent">
+              ${a.credits_per_team}
+            </div>
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              Credits
+            </div>
+          </div>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <div class="text-[18px] font-bold tracking-tight tabular-nums">
+              ${a.min_team_size}–${a.max_team_size}
+            </div>
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              Roster
+            </div>
+          </div>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <div class="text-[18px] font-bold tracking-tight tabular-nums">
+              ${a.number_of_goalkeepers}
+            </div>
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              GK
+            </div>
+          </div>
         </div>
-        <div class="text-xs text-slate-700 mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          <span><strong>${a.number_of_teams}</strong> teams</span>
-          <span>${a.number_of_auctioners} auct.</span>
-          <span>${a.credits_per_team} cr.</span>
-          <span>${a.min_team_size}–${a.max_team_size} pl.</span>
-          <span>${a.number_of_goalkeepers} GK</span>
-        </div>
-        <div class="flex gap-3 mt-2 text-xs" @click=${(e: Event) => e.stopPropagation()}>
-          ${canEdit
+
+        ${this.renderTeamChips(a)}
+
+        <div
+          class="flex gap-1.5 mt-auto"
+          @click=${(e: Event) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            @click=${() => this.navigateToAuction(a.id)}
+            class="inline-flex items-center gap-2 px-3 py-1.5 rounded text-[12px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] transition-colors"
+          >
+            ${PRIMARY_LABEL[a.status]}
+            ${icon("arrow-right", { size: 14 })}
+          </button>
+          <div class="flex-1"></div>
+          ${a.status === "INITIAL"
             ? html`<button
+                type="button"
+                aria-label="Edit"
+                title="Edit"
                 @click=${() => this.openEditDialog(a)}
-                class="text-sky-700 hover:underline"
-              >Edit</button>`
+                class="w-8 h-8 grid place-items-center rounded border border-transparent text-fg-dim hover:text-fg hover:bg-surface-hover hover:border-line-strong transition-colors"
+              >${icon("pencil", { size: 14 })}</button>`
             : nothing}
           <button
+            type="button"
+            aria-label="Delete"
+            title="Delete"
             @click=${() => this.deleteAuction(a)}
-            class="text-rose-700 hover:underline ml-auto"
-          >Delete</button>
+            class="w-8 h-8 grid place-items-center rounded text-danger hover:bg-danger/10 hover:border-danger/30 border border-transparent transition-colors"
+          >${icon("trash", { size: 14 })}</button>
         </div>
       </div>
     `;
@@ -237,69 +282,58 @@ export class HomePage extends LitElement {
   private renderNewTile() {
     return html`
       <button
+        type="button"
         @click=${() => this.openCreateDialog()}
-        class="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-slate-600 hover:bg-slate-100 hover:border-slate-400 flex flex-col items-center justify-center min-h-[7rem]"
+        class="flex flex-col items-center justify-center gap-2 min-h-[220px] rounded-xl border border-dashed border-line text-fg-dim bg-surface/40 hover:text-accent hover:border-accent/30 transition-colors"
       >
-        <div class="text-2xl leading-none">+</div>
-        <div class="text-xs mt-1">New auction</div>
+        ${icon("plus", { size: 28 })}
+        <div class="font-semibold text-[14px]">New auction</div>
       </button>
     `;
   }
 
-  private renderCenterPanel() {
-    const a = this.selectedAuction;
-    if (a == null) {
-      if (this.auctions.length === 0) return nothing;
-      return html`
-        <div class="border border-dashed border-slate-300 rounded-md p-6 text-center text-sm text-slate-500">
-          Select an auction above to see its details.
-        </div>
-      `;
-    }
-    switch (a.status) {
-      case "INITIAL":
-        return html`<auction-evaluations
-          .auction=${a}
-          @auction-started=${this.onAuctionStarted}
-        ></auction-evaluations>`;
-      case "IN_PROGRESS":
-        return html`<auction-running .auction=${a}></auction-running>`;
-      case "TERMINATED":
-        return html`<auction-finished .auction=${a}></auction-finished>`;
-    }
-  }
-
   override render() {
     return html`
-      <h2 class="text-xl font-semibold mb-3">Home</h2>
+      <main class="max-w-screen-xl mx-auto px-6 pt-8 pb-20">
+        <div class="flex items-end justify-between gap-4 mb-6">
+          <div>
+            <h1 class="text-[28px] font-bold tracking-tight m-0">Auctions</h1>
+            <p class="text-fg-dim m-0 mt-1 text-[14px]">
+              Pick an auction to continue, or create a new one.
+            </p>
+          </div>
+          <button
+            type="button"
+            @click=${() => this.openCreateDialog()}
+            class="inline-flex items-center gap-2 px-[18px] py-3 rounded text-[14px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] transition-colors"
+          >
+            ${icon("plus", { size: 16 })}
+            New auction
+          </button>
+        </div>
 
-      <section class="mb-6">
-        <h3 class="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-2">
-          Auctions
-        </h3>
         ${this.loading
-          ? html`<p class="text-slate-600">Loading auctions…</p>`
+          ? html`<p class="text-fg-dim">Loading auctions…</p>`
           : this.loadError
-            ? html`<p class="text-rose-700">Failed to load: ${this.loadError}</p>`
+            ? html`<p class="text-danger">Failed to load: ${this.loadError}</p>`
             : html`
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div
+                  class="grid gap-4"
+                  style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));"
+                >
                   ${this.auctions.map((a) => this.renderAuctionCard(a))}
                   ${this.renderNewTile()}
                 </div>
               `}
-      </section>
 
-      <section>
-        ${this.renderCenterPanel()}
-      </section>
-
-      <auction-dialog
-        .mode=${this.dialogMode}
-        .auction=${this.dialogAuction}
-        .open=${this.dialogOpen}
-        @dialog-closed=${this.onDialogClosed}
-        @auction-saved=${this.onAuctionSaved}
-      ></auction-dialog>
+        <auction-dialog
+          .mode=${this.dialogMode}
+          .auction=${this.dialogAuction}
+          .open=${this.dialogOpen}
+          @dialog-closed=${this.onDialogClosed}
+          @auction-saved=${this.onAuctionSaved}
+        ></auction-dialog>
+      </main>
     `;
   }
 }

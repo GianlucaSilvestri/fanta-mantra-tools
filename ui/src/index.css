@@ -1,1 +1,55 @@
 @import "tailwindcss";
+
+@theme {
+  --color-app: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-2: #1c1c1c;
+  --color-surface-hover: #1f1f1f;
+  --color-line: #262626;
+  --color-line-strong: #333333;
+  --color-fg: #ededed;
+  --color-fg-dim: #9a9a9a;
+  --color-fg-muted: #6a6a6a;
+  --color-accent: #04fd0e;
+  --color-warn: #f7b500;
+  --color-danger: #ef3b4b;
+
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --animate-dot-pulse: dot-pulse 1.6s infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-app);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-app); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-2);
+  border-radius: 100px;
+  border: 2px solid var(--color-app);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-line-strong); }
+
+input, select, button, textarea { font-family: inherit; }
+input[type="number"] { font-variant-numeric: tabular-nums; }
+
+button:not(:disabled), [role="button"]:not(:disabled), a[href] { cursor: pointer; }
+button:disabled, [role="button"][aria-disabled="true"] { cursor: not-allowed; }

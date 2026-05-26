@@ -133,6 +133,15 @@ def create_auction(body: AuctionCreate) -> dict:
             detail=f"max_team_size ({body.max_team_size}) must be >= min_team_size ({body.min_team_size})",
         )
 
+    if len(body.teams) > body.number_of_auctioners:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{len(body.teams)} teams provided but number_of_auctioners is "
+                f"{body.number_of_auctioners}; cannot exceed the auctioner cap"
+            ),
+        )
+
     # Reject duplicate names in the same payload before hitting the DB.
     seen: set[str] = set()
     for name in body.teams:
@@ -232,6 +241,26 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                     detail=f"max_team_size ({new_max}) must be >= min_team_size ({new_min})",
                 )
 
+            new_auctioners = fields.get(
+                "number_of_auctioners", auction.number_of_auctioners
+            )
+            if new_auctioners != auction.number_of_auctioners:
+                current_team_count = int(
+                    session.execute(
+                        select(func.count(AuctionTeam.id)).where(
+                            AuctionTeam.auction_id == auction_id
+                        )
+                    ).scalar_one()
+                )
+                if current_team_count > new_auctioners:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"cannot set number_of_auctioners to {new_auctioners}: "
+                            f"auction already has {current_team_count} teams"
+                        ),
+                    )
+
             # Gate the INITIAL → IN_PROGRESS transition on a complete evaluation.
             new_status = fields.get("status")
             if (
@@ -288,6 +317,21 @@ def add_team(auction_id: int, body: TeamCreate) -> dict:
                 raise HTTPException(
                     status_code=409,
                     detail=f"auction is {auction.status.value}; teams can only be edited while INITIAL",
+                )
+            current_team_count = int(
+                session.execute(
+                    select(func.count(AuctionTeam.id)).where(
+                        AuctionTeam.auction_id == auction_id
+                    )
+                ).scalar_one()
+            )
+            if current_team_count >= auction.number_of_auctioners:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"auction already has {current_team_count} teams; "
+                        f"number_of_auctioners is {auction.number_of_auctioners}"
+                    ),
                 )
             team = AuctionTeam(auction_id=auction_id, team_name=body.team_name)
             session.add(team)
