@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -16,6 +16,7 @@ from backend.app.models import (
     AuctionTeam,
     Player,
 )
+from backend.app.services.autofill_evaluations import compute_autofill_evaluations
 
 router = APIRouter(prefix="/auctions", tags=["auctions"])
 
@@ -64,7 +65,7 @@ class EvaluationPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    evaluation: int | None = Field(default=None, ge=0)
+    evaluation: int | None = Field(default=None, ge=1)
 
 
 # Fields a PATCH cannot touch when the auction has moved past INITIAL.
@@ -616,8 +617,10 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                     except ValueError:
                         invalid_rows.append(f"line {line_no}: non-integer evaluation {raw_eval!r}")
                         continue
-                    if evaluation < 0:
-                        invalid_rows.append(f"line {line_no}: negative evaluation {evaluation}")
+                    if evaluation < 1:
+                        invalid_rows.append(
+                            f"line {line_no}: evaluation must be >= 1 (got {evaluation})"
+                        )
                         continue
 
                 if pid not in existing_ids:
@@ -652,3 +655,58 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
         "imported": len(deduped),
         "unknown_player_ids": unknown,
     }
+
+
+@router.post("/{auction_id}/evaluations/autofill")
+def autofill_evaluations(auction_id: int) -> dict:
+    """Replace all auction_evaluations with an algorithmic autofill.
+
+    Uses fanta_market_value as the anchor and produces a set sized to
+    N × max_team_size, summing to N × 1000 (base-1000), with exactly
+    N × number_of_goalkeepers goalkeepers — so all three groups of
+    GET /evaluations/status come out "ok".
+    """
+    # Single transaction: locks the auction row (so a concurrent
+    # PATCH cannot flip status mid-flight), runs the player-pool reads,
+    # then DELETEs and re-INSERTs all evaluations. Commits on exit;
+    # any HTTPException or DB error rolls everything back.
+    with SessionLocal() as session:
+        with session.begin():
+            auction = session.get(Auction, auction_id, with_for_update=True)
+            if auction is None:
+                raise HTTPException(
+                    status_code=404, detail=f"auction {auction_id} not found"
+                )
+            if auction.status != AuctionStatus.INITIAL:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"auction is {auction.status.value}; evaluations can "
+                        f"only be autofilled while INITIAL"
+                    ),
+                )
+
+            try:
+                values = compute_autofill_evaluations(session, auction)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+            session.execute(
+                delete(AuctionEvaluation).where(
+                    AuctionEvaluation.auction_id == auction_id
+                )
+            )
+            if values:
+                session.execute(
+                    pg_insert(AuctionEvaluation),
+                    [
+                        {
+                            "auction_id": auction_id,
+                            "player_id": pid,
+                            "evaluation": v,
+                        }
+                        for pid, v in values.items()
+                    ],
+                )
+
+    return {"autofilled": len(values)}

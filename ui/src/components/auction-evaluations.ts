@@ -64,7 +64,10 @@ function toAuction(stored: number | null, credits: number): number | null {
 }
 
 function toBase(displayed: number, credits: number): number {
-  return Math.floor((displayed * BASE_CREDITS) / credits);
+  // Ceil so a displayed value of 1 always round-trips back to >= 1
+  // after toAuction's floor (otherwise stored=1 with credits<1000
+  // displays as 0).
+  return Math.ceil((displayed * BASE_CREDITS) / credits);
 }
 
 const FILL_CLS: Record<StatusKind, string> = {
@@ -208,7 +211,10 @@ export class AuctionEvaluations extends LitElement {
   private async save(playerId: number, raw: string): Promise<void> {
     const trimmed = raw.trim();
     const displayed: number | null = trimmed === "" ? null : Number.parseInt(trimmed, 10);
-    if (displayed !== null && (Number.isNaN(displayed) || displayed < 0)) return;
+    if (displayed !== null && (Number.isNaN(displayed) || displayed < 1)) {
+      this.saveErrors = new Set(this.saveErrors).add(playerId);
+      return;
+    }
 
     const stored: number | null =
       displayed === null ? null : toBase(displayed, this.auction.credits_per_team);
@@ -311,6 +317,52 @@ export class AuctionEvaluations extends LitElement {
     } finally {
       this.csvBusy = false;
       input.value = "";
+    }
+  }
+
+  private async autofill(): Promise<void> {
+    if (
+      !confirm(
+        msg(
+          str`Autofill will REPLACE all evaluations for "${this.auction.name}". Continue?`,
+        ),
+      )
+    ) {
+      return;
+    }
+    this.csvBusy = true;
+    this.csvMessageKind = "busy";
+    this.csvMessage = msg("Autofilling…");
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auction.id}/evaluations/autofill`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        autofilled?: number;
+        detail?: unknown;
+      };
+      if (!res.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : data.detail != null
+              ? JSON.stringify(data.detail)
+              : `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+      const n = data.autofilled ?? 0;
+      this.csvMessageKind = "ok";
+      this.csvMessage =
+        n === 1
+          ? msg("Autofilled 1 evaluation.")
+          : msg(str`Autofilled ${n} evaluations.`);
+      await this.load();
+    } catch (err) {
+      this.csvMessageKind = "err";
+      this.csvMessage = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.csvBusy = false;
     }
   }
 
@@ -548,7 +600,7 @@ export class AuctionEvaluations extends LitElement {
         <td class="px-3 py-[7px] text-[13px] text-right w-[100px] border-b border-line">
           <input
             type="number"
-            min="0"
+            min="1"
             step="1"
             .value=${scaledEval === null ? "" : String(scaledEval)}
             @change=${(e: Event) => this.save(p.id, (e.target as HTMLInputElement).value)}
@@ -658,6 +710,12 @@ export class AuctionEvaluations extends LitElement {
                   ${this.csvMessage}
                 </span>`
               : nothing}
+            <button
+              type="button"
+              @click=${() => this.autofill()}
+              ?disabled=${this.csvBusy}
+              class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
+            >${msg("Autofill")}</button>
             <button
               type="button"
               @click=${() => this.exportCsv()}
