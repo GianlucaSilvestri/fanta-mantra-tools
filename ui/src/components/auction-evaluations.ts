@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
 
@@ -79,6 +80,7 @@ const PCT_CLS: Record<StatusKind, string> = {
 };
 
 @customElement("auction-evaluations")
+@localized()
 export class AuctionEvaluations extends LitElement {
   @property({ attribute: false }) auction!: Auction;
 
@@ -256,8 +258,9 @@ export class AuctionEvaluations extends LitElement {
     if (!file) return;
     if (
       !confirm(
-        `Import evaluations from "${file.name}" into "${this.auction.name}"?\n` +
-          `Players present in the CSV will be overwritten; others stay as they are.`,
+        msg(
+          str`Import evaluations from "${file.name}" into "${this.auction.name}"?\nPlayers present in the CSV will be overwritten; others stay as they are.`,
+        ),
       )
     ) {
       input.value = "";
@@ -266,7 +269,7 @@ export class AuctionEvaluations extends LitElement {
 
     this.csvBusy = true;
     this.csvMessageKind = "busy";
-    this.csvMessage = `Uploading ${file.name}…`;
+    this.csvMessage = msg(str`Uploading ${file.name}…`);
 
     const fd = new FormData();
     fd.append("file", file);
@@ -290,11 +293,17 @@ export class AuctionEvaluations extends LitElement {
         throw new Error(detail);
       }
       const unknown = data.unknown_player_ids ?? [];
-      const unknownNote = unknown.length
-        ? ` (${unknown.length} unknown player_id${unknown.length === 1 ? "" : "s"} skipped)`
-        : "";
+      const unknownNote = unknown.length === 0
+        ? ""
+        : unknown.length === 1
+          ? msg(" (1 unknown player_id skipped)")
+          : msg(str` (${unknown.length} unknown player_ids skipped)`);
+      const imported = data.imported ?? 0;
       this.csvMessageKind = "ok";
-      this.csvMessage = `Imported ${data.imported ?? 0} evaluation${data.imported === 1 ? "" : "s"}.${unknownNote}`;
+      this.csvMessage =
+        imported === 1
+          ? msg(str`Imported 1 evaluation.${unknownNote}`)
+          : msg(str`Imported ${imported} evaluations.${unknownNote}`);
       await this.load();
     } catch (err) {
       this.csvMessageKind = "err";
@@ -309,7 +318,9 @@ export class AuctionEvaluations extends LitElement {
     if (!this.allGreen) return;
     if (
       !confirm(
-        `Start auction "${this.auction.name}"? Evaluations will be locked once the auction is IN_PROGRESS.`,
+        msg(
+          str`Start auction "${this.auction.name}"? Evaluations will be locked once the auction is IN_PROGRESS.`,
+        ),
       )
     ) {
       return;
@@ -393,16 +404,16 @@ export class AuctionEvaluations extends LitElement {
       >
         <div class="flex items-baseline justify-between">
           <h3 class="text-[13px] font-bold uppercase tracking-[0.08em] m-0">
-            Evaluation status
+            ${msg("Evaluation status")}
           </h3>
           <span class="text-[12px] text-fg-muted">
-            Targets × ${this.auction.number_of_auctioners} teams
+            ${msg(str`Targets × ${this.auction.number_of_auctioners} teams`)}
           </span>
         </div>
 
         <div class="flex flex-col gap-1.5">
           <div class="flex items-baseline justify-between gap-3">
-            <div class="text-[13px] font-semibold">Credits spent</div>
+            <div class="text-[13px] font-semibold">${msg("Credits spent")}</div>
             <div class="text-[12px] text-fg-dim tabular-nums">
               <span>${credits.used} / ${credits.total}</span>
               <span class=${"ml-2 font-bold " + PCT_CLS[credits.status]}>
@@ -421,7 +432,7 @@ export class AuctionEvaluations extends LitElement {
 
         <div class="flex flex-col gap-1.5">
           <div class="flex items-baseline justify-between gap-3">
-            <div class="text-[13px] font-semibold">Players evaluated</div>
+            <div class="text-[13px] font-semibold">${msg("Players evaluated")}</div>
             <div class="text-[12px] text-fg-dim tabular-nums">
               <span>${players.evaluated} / ${players.min}–${players.max}</span>
               <span class=${"ml-2 font-bold " + PCT_CLS[players.status]}>
@@ -434,7 +445,7 @@ export class AuctionEvaluations extends LitElement {
 
         <div class="flex flex-col gap-1.5">
           <div class="flex items-baseline justify-between gap-3">
-            <div class="text-[13px] font-semibold">Goalkeepers evaluated</div>
+            <div class="text-[13px] font-semibold">${msg("Goalkeepers evaluated")}</div>
             <div class="text-[12px] text-fg-dim tabular-nums">
               <span>${gk.evaluated} / ${gk.target}</span>
               <span class=${"ml-2 font-bold " + PCT_CLS[gk.status]}>
@@ -460,13 +471,13 @@ export class AuctionEvaluations extends LitElement {
           class="w-full inline-flex items-center justify-center gap-2 px-[18px] py-3 rounded text-[14px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           ${icon("play", { size: 14 })}
-          ${this.starting ? "Starting…" : "Start auction"}
+          ${this.starting ? msg("Starting…") : msg("Start auction")}
         </button>
         ${this.allGreen
           ? nothing
           : html`<p class="text-fg-dim text-[12px] text-center m-0">
-              All three indicators must be in the
-              <span class="text-accent font-bold">ok</span> zone to start.
+              ${msg(html`All three indicators must be in the
+              <span class="text-accent font-bold">ok</span> zone to start.`)}
             </p>`}
         ${this.startError
           ? html`<p class="text-danger text-[12px] text-center m-0">
@@ -522,7 +533,7 @@ export class AuctionEvaluations extends LitElement {
         <td class="px-3 py-[7px] text-[13px] font-semibold border-b border-line">
           ${p.name}
           ${this.saveErrors.has(p.id)
-            ? html`<span class="text-danger ml-1" title="last save failed">⚠</span>`
+            ? html`<span class="text-danger ml-1" title=${msg("last save failed")}>⚠</span>`
             : nothing}
         </td>
         <td class="px-3 py-[7px] text-[13px] text-fg-dim border-b border-line">
@@ -570,7 +581,7 @@ export class AuctionEvaluations extends LitElement {
               </span>
               <input
                 type="text"
-                placeholder="Search player…"
+                placeholder=${msg("Search player…")}
                 .value=${this.nameFilter}
                 @input=${(e: Event) =>
                   (this.nameFilter = (e.target as HTMLInputElement).value)}
@@ -583,7 +594,7 @@ export class AuctionEvaluations extends LitElement {
                 (this.roleFilter = (e.target as HTMLSelectElement).value)}
               class="bg-app border border-line text-fg rounded px-3 py-2 text-[13px] max-w-[140px] focus:outline-none focus:border-accent"
             >
-              <option value="">All roles</option>
+              <option value="">${msg("All roles")}</option>
               ${this.roles.map(
                 (r) => html`<option value=${r}>${r}</option>`,
               )}
@@ -594,7 +605,7 @@ export class AuctionEvaluations extends LitElement {
                 (this.teamFilter = (e.target as HTMLSelectElement).value)}
               class="bg-app border border-line text-fg rounded px-3 py-2 text-[13px] max-w-[200px] focus:outline-none focus:border-accent"
             >
-              <option value="">All Serie A teams</option>
+              <option value="">${msg("All Serie A teams")}</option>
               ${this.teams.map(
                 (t) => html`<option value=${t}>${t}</option>`,
               )}
@@ -608,7 +619,7 @@ export class AuctionEvaluations extends LitElement {
                 (this.onlyUneval = (e.target as HTMLInputElement).checked)}
               style="accent-color: var(--color-accent);"
             />
-            Only unevaluated
+            ${msg("Only unevaluated")}
           </label>
         </div>
 
@@ -616,14 +627,14 @@ export class AuctionEvaluations extends LitElement {
           <table class="w-full border-collapse">
             <thead>
               <tr>
-                ${this.headerCell("A", "fanta_evaluation", "right")}
-                ${this.headerCell("Name", "name")}
-                ${this.headerCell("Team", "team")}
+                ${this.headerCell(msg("A"), "fanta_evaluation", "right")}
+                ${this.headerCell(msg("Name"), "name")}
+                ${this.headerCell(msg("Team"), "team")}
                 <th
                   class="sticky top-0 z-10 bg-surface-2 px-3 py-[7px] text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap text-fg-muted border-b border-line"
-                >Roles</th>
-                ${this.headerCell("Value", "fanta_market_value", "right")}
-                ${this.headerCell("Evaluation", "evaluation", "right")}
+                >${msg("Roles")}</th>
+                ${this.headerCell(msg("Value"), "fanta_market_value", "right")}
+                ${this.headerCell(msg("Evaluation"), "evaluation", "right")}
               </tr>
             </thead>
             <tbody>
@@ -632,7 +643,7 @@ export class AuctionEvaluations extends LitElement {
                     <td
                       colspan="6"
                       class="text-center py-8 text-fg-muted text-[13px]"
-                    >No players match these filters</td>
+                    >${msg("No players match these filters")}</td>
                   </tr>`
                 : rows.map((p) => this.renderRow(p, credits))}
             </tbody>
@@ -640,7 +651,7 @@ export class AuctionEvaluations extends LitElement {
         </div>
 
         <div class="flex justify-between items-center px-4 py-3 border-t border-line text-[12px] text-fg-dim flex-wrap gap-2">
-          <div>${rows.length} of ${this.players.length} players</div>
+          <div>${msg(str`${rows.length} of ${this.players.length} players`)}</div>
           <div class="flex items-center gap-2">
             ${this.csvMessage
               ? html`<span class=${"text-[12px] " + csvMsgCls}>
@@ -652,13 +663,13 @@ export class AuctionEvaluations extends LitElement {
               @click=${() => this.exportCsv()}
               ?disabled=${this.csvBusy}
               class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
-            >Export CSV</button>
+            >${msg("Export CSV")}</button>
             <button
               type="button"
               @click=${() => this.triggerImport()}
               ?disabled=${this.csvBusy}
               class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
-            >Import CSV</button>
+            >${msg("Import CSV")}</button>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -673,17 +684,16 @@ export class AuctionEvaluations extends LitElement {
   }
 
   override render() {
-    if (this.loading) return html`<p class="text-fg-dim">Loading…</p>`;
+    if (this.loading) return html`<p class="text-fg-dim">${msg("Loading…")}</p>`;
     if (this.loadError)
-      return html`<p class="text-danger">Failed to load: ${this.loadError}</p>`;
+      return html`<p class="text-danger">${msg(str`Failed to load: ${this.loadError}`)}</p>`;
 
     return html`
       <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
         <div class="min-w-0">
-          <h2 class="text-[18px] font-bold m-0 mb-1">Evaluate players</h2>
+          <h2 class="text-[18px] font-bold m-0 mb-1">${msg("Evaluate players")}</h2>
           <p class="text-[13px] text-fg-dim m-0">
-            Enter the maximum credits you'd spend on each player. Saves
-            automatically.
+            ${msg("Enter the maximum credits you'd spend on each player. Saves automatically.")}
           </p>
           ${this.renderTable()}
         </div>

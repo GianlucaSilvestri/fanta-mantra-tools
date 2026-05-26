@@ -1,0 +1,485 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+<file target-language="it" source-language="en" original="lit-localize-inputs" datatype="plaintext">
+<body>
+<trans-unit id="s6228ade28be2823a">
+  <source>Not found: <x id="0" equiv-text="${this.path}"/></source>
+  <target>Non trovato: <x id="0" equiv-text="${this.path}"/></target>
+</trans-unit>
+<trans-unit id="s6abb1cd87fe0114e">
+  <source>Home</source>
+  <target>Home</target>
+</trans-unit>
+<trans-unit id="sfb68cae41d749423">
+  <source>Initial</source>
+  <target>Iniziale</target>
+</trans-unit>
+<trans-unit id="sce4f864763a12cc5">
+  <source>In Progress</source>
+  <target>In Corso</target>
+</trans-unit>
+<trans-unit id="sb23938ffc25f80e0">
+  <source>Terminated</source>
+  <target>Terminata</target>
+</trans-unit>
+<trans-unit id="s2e5b068ae91368f9">
+  <source>Cannot add more than <x id="0" equiv-text="${this.form.number_of_auctioners}"/> teams (auctioners cap)</source>
+  <target>Impossibile aggiungere più di <x id="0" equiv-text="${this.form.number_of_auctioners}"/> squadre (limite partecipanti)</target>
+</trans-unit>
+<trans-unit id="s79f2342e6cf3f5ce">
+  <source>MAX players / team must be &gt;= MIN</source>
+  <target>Il MAX giocatori / squadra deve essere &gt;= MIN</target>
+</trans-unit>
+<trans-unit id="se87d992cf75e58bb">
+  <source>Name is required</source>
+  <target>Il nome è obbligatorio</target>
+</trans-unit>
+<trans-unit id="sb060188bb28bfa9f">
+  <source>Saving…</source>
+  <target>Salvataggio…</target>
+</trans-unit>
+<trans-unit id="sda0c88fc290586bd">
+  <source>Team names must be unique</source>
+  <target>I nomi delle squadre devono essere univoci</target>
+</trans-unit>
+<trans-unit id="s62cf73b825a303d6">
+  <source>Cannot have more than <x id="0" equiv-text="${this.form.number_of_auctioners}"/> teams (auctioners cap)</source>
+  <target>Non è possibile avere più di <x id="0" equiv-text="${this.form.number_of_auctioners}"/> squadre (limite partecipanti)</target>
+</trans-unit>
+<trans-unit id="h31fd3f40eef6eb03">
+  <source>This auction is <x id="0" equiv-text="&lt;b&gt;${statusLabel(status)}&lt;/b&gt;"/>. Most fields
+              are locked — only the name can be edited.</source>
+  <target>Questa asta è <x id="0" equiv-text="&lt;b&gt;${statusLabel(status)}&lt;/b&gt;"/>. La maggior parte dei campi è bloccata — solo il nome può essere modificato.</target>
+</trans-unit>
+<trans-unit id="s7cf25c29316845c5">
+  <source>Teams (<x id="0" equiv-text="${teams.length}"/> / <x id="1" equiv-text="${cap}"/>)</source>
+  <target>Squadre (<x id="0" equiv-text="${teams.length}"/> / <x id="1" equiv-text="${cap}"/>)</target>
+</trans-unit>
+<trans-unit id="s13f8fe58f9993478">
+  <source>Auctioners cap reached</source>
+  <target>Limite partecipanti raggiunto</target>
+</trans-unit>
+<trans-unit id="s4e6bac96fe4475bf">
+  <source>Team name</source>
+  <target>Nome squadra</target>
+</trans-unit>
+<trans-unit id="s9575a633d2d29df6">
+  <source>Remove team</source>
+  <target>Rimuovi squadra</target>
+</trans-unit>
+<trans-unit id="s350e88190de22a5b">
+  <source>Increase auctioners to add more</source>
+  <target>Aumenta i partecipanti per aggiungerne altre</target>
+</trans-unit>
+<trans-unit id="s617aa42f6cf7d3be">
+  <source>+ add team and press Enter</source>
+  <target>+ aggiungi squadra e premi Invio</target>
+</trans-unit>
+<trans-unit id="sf9aee319a006c9b4">
+  <source>Add</source>
+  <target>Aggiungi</target>
+</trans-unit>
+<trans-unit id="s7e997b86f81cf878">
+  <source>No teams yet.</source>
+  <target>Nessuna squadra ancora.</target>
+</trans-unit>
+<trans-unit id="sf3797e359aa50e6c">
+  <source>Create auction</source>
+  <target>Crea asta</target>
+</trans-unit>
+<trans-unit id="s61aa554bfbd58f60">
+  <source>Edit auction</source>
+  <target>Modifica asta</target>
+</trans-unit>
+<trans-unit id="s5e8250fb85d64c23">
+  <source>Close</source>
+  <target>Chiudi</target>
+</trans-unit>
+<trans-unit id="sef49aec68fd1dc66">
+  <source>Name</source>
+  <target>Nome</target>
+</trans-unit>
+<trans-unit id="s3b213b8611a8d599">
+  <source>e.g. Lega Boys 2025/26</source>
+  <target>es. Lega Boys 2025/26</target>
+</trans-unit>
+<trans-unit id="s63d894b1ddb06289">
+  <source>Description</source>
+  <target>Descrizione</target>
+</trans-unit>
+<trans-unit id="s8cd23ae94c6c655b">
+  <source>Credits per team</source>
+  <target>Crediti per squadra</target>
+</trans-unit>
+<trans-unit id="s4d3706cb856dcca1">
+  <source>Goalkeepers</source>
+  <target>Portieri</target>
+</trans-unit>
+<trans-unit id="s5e5f9635bd4f85f5">
+  <source>Min players / team</source>
+  <target>Giocatori MIN / squadra</target>
+</trans-unit>
+<trans-unit id="s943600879936edf7">
+  <source>Max players / team</source>
+  <target>Giocatori MAX / squadra</target>
+</trans-unit>
+<trans-unit id="sa09cd0b0694767d2">
+  <source>Auctioners</source>
+  <target>Partecipanti</target>
+</trans-unit>
+<trans-unit id="s2ceb11be2290bb1b">
+  <source>Cancel</source>
+  <target>Annulla</target>
+</trans-unit>
+<trans-unit id="s870f7b2f8c27e219">
+  <source>Save changes</source>
+  <target>Salva modifiche</target>
+</trans-unit>
+<trans-unit id="sb3493171f9d08112">
+  <source>Import evaluations from "<x id="0" equiv-text="${file.name}"/>" into "<x id="1" equiv-text="${this.auction.name}"/>"?
+Players present in the CSV will be overwritten; others stay as they are.</source>
+  <target>Importare le valutazioni da "<x id="0" equiv-text="${file.name}"/>" in "<x id="1" equiv-text="${this.auction.name}"/>"?
+I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.</target>
+</trans-unit>
+<trans-unit id="sd7430f3a6bb348b0">
+  <source> (1 unknown player_id skipped)</source>
+  <target> (1 player_id sconosciuto saltato)</target>
+</trans-unit>
+<trans-unit id="s0741006da3d5a46c">
+  <source> (<x id="0" equiv-text="${unknown.length}"/> unknown player_ids skipped)</source>
+  <target> (<x id="0" equiv-text="${unknown.length}"/> player_id sconosciuti saltati)</target>
+</trans-unit>
+<trans-unit id="s2b4f4280f291e600">
+  <source>Imported 1 evaluation.<x id="0" equiv-text="${unknownNote}"/></source>
+  <target>Importata 1 valutazione.<x id="0" equiv-text="${unknownNote}"/></target>
+</trans-unit>
+<trans-unit id="s1b4e297a03de9f74">
+  <source>Imported <x id="0" equiv-text="${imported}"/> evaluations.<x id="1" equiv-text="${unknownNote}"/></source>
+  <target>Importate <x id="0" equiv-text="${imported}"/> valutazioni.<x id="1" equiv-text="${unknownNote}"/></target>
+</trans-unit>
+<trans-unit id="s8760704cf542d759">
+  <source>Start auction "<x id="0" equiv-text="${this.auction.name}"/>"? Evaluations will be locked once the auction is IN_PROGRESS.</source>
+  <target>Avviare l'asta "<x id="0" equiv-text="${this.auction.name}"/>"? Le valutazioni saranno bloccate una volta che l'asta è IN_PROGRESS.</target>
+</trans-unit>
+<trans-unit id="sa2ccf4428b42b657">
+  <source>Evaluation status</source>
+  <target>Stato valutazione</target>
+</trans-unit>
+<trans-unit id="s24c964c291b16248">
+  <source>Targets × <x id="0" equiv-text="${this.auction.number_of_auctioners}"/> teams</source>
+  <target>Obiettivi × <x id="0" equiv-text="${this.auction.number_of_auctioners}"/> squadre</target>
+</trans-unit>
+<trans-unit id="s62fd00e45502c451">
+  <source>Credits spent</source>
+  <target>Crediti spesi</target>
+</trans-unit>
+<trans-unit id="s3a564b6e240e9aa8">
+  <source>Players evaluated</source>
+  <target>Giocatori valutati</target>
+</trans-unit>
+<trans-unit id="sa7130d1d95402550">
+  <source>Goalkeepers evaluated</source>
+  <target>Portieri valutati</target>
+</trans-unit>
+<trans-unit id="sf96e5892f9ec390d">
+  <source>Starting…</source>
+  <target>Avvio in corso…</target>
+</trans-unit>
+<trans-unit id="s9b6d6f109b6a33ca">
+  <source>Start auction</source>
+  <target>Avvia asta</target>
+</trans-unit>
+<trans-unit id="hb730ad2ec7b5671e">
+  <source>All three indicators must be in the
+              <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> zone to start.</source>
+  <target>Tutti e tre gli indicatori devono essere nella zona <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> per avviare.</target>
+</trans-unit>
+<trans-unit id="s8c1fa1bfdd33fb73">
+  <source>last save failed</source>
+  <target>ultimo salvataggio fallito</target>
+</trans-unit>
+<trans-unit id="s3ddff650033496d4">
+  <source>Search player…</source>
+  <target>Cerca giocatore…</target>
+</trans-unit>
+<trans-unit id="sa0655554ddc161a5">
+  <source>All roles</source>
+  <target>Tutti i ruoli</target>
+</trans-unit>
+<trans-unit id="s5bd3cb9ef561e881">
+  <source>All Serie A teams</source>
+  <target>Tutte le squadre Serie A</target>
+</trans-unit>
+<trans-unit id="s36137e463d0dcce7">
+  <source>Only unevaluated</source>
+  <target>Solo non valutati</target>
+</trans-unit>
+<trans-unit id="saf63fc4c860222ec">
+  <source>A</source>
+  <target>A</target>
+</trans-unit>
+<trans-unit id="s24b1dafb1b20370c">
+  <source>Team</source>
+  <target>Squadra</target>
+</trans-unit>
+<trans-unit id="s6b2beba7ab637e9e">
+  <source>Roles</source>
+  <target>Ruoli</target>
+</trans-unit>
+<trans-unit id="s41f7dca46d3f1b4a">
+  <source>Value</source>
+  <target>Valore</target>
+</trans-unit>
+<trans-unit id="s617eb482d9f0d91f">
+  <source>Evaluation</source>
+  <target>Valutazione</target>
+</trans-unit>
+<trans-unit id="s08ad83af20088879">
+  <source>No players match these filters</source>
+  <target>Nessun giocatore corrisponde a questi filtri</target>
+</trans-unit>
+<trans-unit id="sba23b47cc04b6306">
+  <source><x id="0" equiv-text="${rows.length}"/> of <x id="1" equiv-text="${this.players.length}"/> players</source>
+  <target><x id="0" equiv-text="${rows.length}"/> di <x id="1" equiv-text="${this.players.length}"/> giocatori</target>
+</trans-unit>
+<trans-unit id="s8b409dc1f261b173">
+  <source>Export CSV</source>
+  <target>Esporta CSV</target>
+</trans-unit>
+<trans-unit id="s147a601e02e7abe4">
+  <source>Import CSV</source>
+  <target>Importa CSV</target>
+</trans-unit>
+<trans-unit id="s6ebc9bd6feae62a3">
+  <source>Loading…</source>
+  <target>Caricamento…</target>
+</trans-unit>
+<trans-unit id="sae128535ac10e8bc">
+  <source>Evaluate players</source>
+  <target>Valuta i giocatori</target>
+</trans-unit>
+<trans-unit id="sef2da2b6a844e52c">
+  <source>Enter the maximum credits you'd spend on each player. Saves automatically.</source>
+  <target>Inserisci i crediti massimi che spenderesti per ogni giocatore. Il salvataggio è automatico.</target>
+</trans-unit>
+<trans-unit id="s764ba3b9855fe35d">
+  <source>Auction complete</source>
+  <target>Asta completata</target>
+</trans-unit>
+<trans-unit id="hd3fc62d4b6ab35bc">
+  <source>Final rosters and summary stats for
+          <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/> will appear here. Designs to be defined.</source>
+  <target>Le rose finali e le statistiche di riepilogo per <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/> appariranno qui. Design da definire.</target>
+</trans-unit>
+<trans-unit id="s1d1b04f2d8d51dad">
+  <source>Created <x id="0" equiv-text="${formatDate(a.created_at)}"/></source>
+  <target>Creata il <x id="0" equiv-text="${formatDate(a.created_at)}"/></target>
+</trans-unit>
+<trans-unit id="s7bd1e1d1abee868b">
+  <source><x id="0" equiv-text="${a.number_of_teams}"/> teams</source>
+  <target><x id="0" equiv-text="${a.number_of_teams}"/> squadre</target>
+</trans-unit>
+<trans-unit id="s731080ea649da87c">
+  <source><x id="0" equiv-text="${a.number_of_auctioners}"/> auctioners</source>
+  <target><x id="0" equiv-text="${a.number_of_auctioners}"/> partecipanti</target>
+</trans-unit>
+<trans-unit id="s48a7367aaf2990dc">
+  <source>Loading auction…</source>
+  <target>Caricamento asta…</target>
+</trans-unit>
+<trans-unit id="s1faba123d5970623">
+  <source>Auction not found</source>
+  <target>Asta non trovata</target>
+</trans-unit>
+<trans-unit id="he6db98612e444282">
+  <source>The auction
+                    <x id="0" equiv-text="&lt;code class=&quot;font-mono text-fg&quot;&gt;"/>#<x id="1" equiv-text="${this.auctionId}&lt;/code&gt;"/>
+                    may have been deleted.</source>
+  <target>L'asta <x id="0" equiv-text="&lt;code class=&quot;font-mono text-fg&quot;&gt;"/>#<x id="1" equiv-text="${this.auctionId}&lt;/code&gt;"/> potrebbe essere stata eliminata.</target>
+</trans-unit>
+<trans-unit id="sdbeed6c12203bea7">
+  <source>← Back to auctions</source>
+  <target>← Torna alle aste</target>
+</trans-unit>
+<trans-unit id="sa6d63ff474ed0ca3">
+  <source>unknown error</source>
+  <target>errore sconosciuto</target>
+</trans-unit>
+<trans-unit id="s5064a035d1aeab5c">
+  <source>Live auction — coming soon</source>
+  <target>Asta dal vivo — prossimamente</target>
+</trans-unit>
+<trans-unit id="hff429a33d5adb0b0">
+  <source>This screen will host the live bidding interface for
+          <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/>. Designs to be defined.</source>
+  <target>Questa schermata ospiterà l'interfaccia delle offerte dal vivo per <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/>. Design da definire.</target>
+</trans-unit>
+<trans-unit id="s12696d696da36de9">
+  <source>Continue setup</source>
+  <target>Continua configurazione</target>
+</trans-unit>
+<trans-unit id="sf76be083f391989b">
+  <source>Resume auction</source>
+  <target>Riprendi asta</target>
+</trans-unit>
+<trans-unit id="s0d2b126617a4b9e6">
+  <source>View results</source>
+  <target>Vedi risultati</target>
+</trans-unit>
+<trans-unit id="s5b03d5dd2c10235b">
+  <source>Delete auction "<x id="0" equiv-text="${a.name}"/>"? Teams and evaluations will be lost.</source>
+  <target>Eliminare l'asta "<x id="0" equiv-text="${a.name}"/>"? Le squadre e le valutazioni andranno perse.</target>
+</trans-unit>
+<trans-unit id="s2a74b36536d15168">
+  <source>Failed to delete: <x id="0" equiv-text="${err instanceof Error ? err.message : String(err)}"/></source>
+  <target>Eliminazione fallita: <x id="0" equiv-text="${err instanceof Error ? err.message : String(err)}"/></target>
+</trans-unit>
+<trans-unit id="sa5c012baddd93986">
+  <source>No teams yet</source>
+  <target>Nessuna squadra ancora</target>
+</trans-unit>
+<trans-unit id="se70d78a0b6cb01fd">
+  <source>+<x id="0" equiv-text="${hidden}"/> more</source>
+  <target>+<x id="0" equiv-text="${hidden}"/> altre</target>
+</trans-unit>
+<trans-unit id="sb90d82b4913ed30d">
+  <source>created <x id="0" equiv-text="${formatDate(a.created_at)}"/></source>
+  <target>creata il <x id="0" equiv-text="${formatDate(a.created_at)}"/></target>
+</trans-unit>
+<trans-unit id="s7a6e97af17be4ccd">
+  <source>Teams</source>
+  <target>Squadre</target>
+</trans-unit>
+<trans-unit id="s7a391ae3182a86b5">
+  <source>Credits</source>
+  <target>Crediti</target>
+</trans-unit>
+<trans-unit id="s0a4103cad4ce2422">
+  <source>Roster</source>
+  <target>Rosa</target>
+</trans-unit>
+<trans-unit id="s09021d07b59c0957">
+  <source>GK</source>
+  <target>POR</target>
+</trans-unit>
+<trans-unit id="s64ef2a6c2dd1d3d1">
+  <source>Edit</source>
+  <target>Modifica</target>
+</trans-unit>
+<trans-unit id="sdc673e73b5c13aea">
+  <source>Delete</source>
+  <target>Elimina</target>
+</trans-unit>
+<trans-unit id="s2431f2c9982f81a0">
+  <source>New auction</source>
+  <target>Nuova asta</target>
+</trans-unit>
+<trans-unit id="sfc61c70d87a10ae3">
+  <source>Auctions</source>
+  <target>Aste</target>
+</trans-unit>
+<trans-unit id="sd7dda8727ef238c4">
+  <source>Pick an auction to continue, or create a new one.</source>
+  <target>Scegli un'asta da continuare, o creane una nuova.</target>
+</trans-unit>
+<trans-unit id="s316b7e774787cdcf">
+  <source>Loading auctions…</source>
+  <target>Caricamento aste…</target>
+</trans-unit>
+<trans-unit id="sa6e6726d7a30cea1">
+  <source>Failed to load: <x id="0" equiv-text="${this.loadError}"/></source>
+  <target>Caricamento fallito: <x id="0" equiv-text="${this.loadError}"/></target>
+</trans-unit>
+<trans-unit id="s9d6bf5ee000f4b0c">
+  <source>Upload <x id="0" equiv-text="${file.name}"/>? This will replace all current players in the database.</source>
+  <target>Caricare <x id="0" equiv-text="${file.name}"/>? Tutti i giocatori attuali nel database saranno sostituiti.</target>
+</trans-unit>
+<trans-unit id="s3d52636822486fc8">
+  <source>Uploading <x id="0" equiv-text="${file.name}"/>…</source>
+  <target>Caricamento di <x id="0" equiv-text="${file.name}"/>…</target>
+</trans-unit>
+<trans-unit id="sc217e25d5b06e321">
+  <source>Imported <x id="0" equiv-text="${data.imported}"/> players from <x id="1" equiv-text="${this.importedFilename}"/>.</source>
+  <target>Importati <x id="0" equiv-text="${data.imported}"/> giocatori da <x id="1" equiv-text="${this.importedFilename}"/>.</target>
+</trans-unit>
+<trans-unit id="s19448d0aea8a98bc">
+  <source>Import failed (HTTP <x id="0" equiv-text="${res.status}"/>).</source>
+  <target>Importazione fallita (HTTP <x id="0" equiv-text="${res.status}"/>).</target>
+</trans-unit>
+<trans-unit id="safabcd6679e05479">
+  <source>Network error: <x id="0" equiv-text="${err instanceof Error ? err.message : String(err)}"/></source>
+  <target>Errore di rete: <x id="0" equiv-text="${err instanceof Error ? err.message : String(err)}"/></target>
+</trans-unit>
+<trans-unit id="sefcf950b3cc4fc3b">
+  <source>Language</source>
+  <target>Lingua</target>
+</trans-unit>
+<trans-unit id="s673ac5e0f698156f">
+  <source>Pick the language used across the app. Saved for next time.</source>
+  <target>Scegli la lingua usata nell'app. Verrà ricordata la prossima volta.</target>
+</trans-unit>
+<trans-unit id="scff072abaac859bc">
+  <source><x id="0" equiv-text="${this.importedCount ?? 0}"/> players · validated</source>
+  <target><x id="0" equiv-text="${this.importedCount ?? 0}"/> giocatori · validati</target>
+</trans-unit>
+<trans-unit id="s12d6dde9b30c3093">
+  <source>Dismiss</source>
+  <target>Chiudi</target>
+</trans-unit>
+<trans-unit id="h5fbcaf5a6bdad889">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> Validated
+                <x id="2" equiv-text="&lt;span class=&quot;text-fg&quot;&gt;${this.importedFilename}&lt;/span&gt;"/></source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> Validato <x id="2" equiv-text="&lt;span class=&quot;text-fg&quot;&gt;${this.importedFilename}&lt;/span&gt;"/></target>
+</trans-unit>
+<trans-unit id="h1ea1d44aa51f6729">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;&#10;                &lt;span class=&quot;text-fg&quot;&gt;${this.importedCount}&lt;/span&gt;"/>
+                players recognized</source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;&#10;                &lt;span class=&quot;text-fg&quot;&gt;${this.importedCount}&lt;/span&gt;"/> giocatori riconosciuti</target>
+</trans-unit>
+<trans-unit id="h757943a28076f416">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> 20 Serie A teams present</source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> 20 squadre di Serie A presenti</target>
+</trans-unit>
+<trans-unit id="hb6e16cf4e51baba6">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-fg-dim&quot;&gt;"/>→<x id="1" equiv-text="&lt;/span&gt;"/> Wiped players table</source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-fg-dim&quot;&gt;"/>→<x id="1" equiv-text="&lt;/span&gt;"/> Tabella giocatori svuotata</target>
+</trans-unit>
+<trans-unit id="hbe1d79fa61f3f46d">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-fg-dim&quot;&gt;"/>→<x id="1" equiv-text="&lt;/span&gt;"/> Reloaded players</source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-fg-dim&quot;&gt;"/>→<x id="1" equiv-text="&lt;/span&gt;"/> Giocatori ricaricati</target>
+</trans-unit>
+<trans-unit id="h7a79a6f733d1d8f2">
+  <source><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> Done. Auction evaluations
+                preserved.</source>
+  <target><x id="0" equiv-text="&lt;span class=&quot;text-accent&quot;&gt;"/>✓<x id="1" equiv-text="&lt;/span&gt;"/> Fatto. Valutazioni delle aste preservate.</target>
+</trans-unit>
+<trans-unit id="s9d8b8aa2b404c2c8">
+  <source>Settings</source>
+  <target>Impostazioni</target>
+</trans-unit>
+<trans-unit id="s3d9b4cf079e69293">
+  <source>Server-wide configuration that persists across auctions.</source>
+  <target>Configurazione a livello di server, condivisa tra tutte le aste.</target>
+</trans-unit>
+<trans-unit id="sd8c9dd760a37b1fe">
+  <source>Players database</source>
+  <target>Database giocatori</target>
+</trans-unit>
+<trans-unit id="h45d3edde44c04483">
+  <source>Upload the latest
+                <x id="0" equiv-text="&lt;code class=&quot;bg-app px-1.5 py-0.5 rounded text-accent&quot;&gt;"/>quotazioni.xlsx<x id="1" equiv-text="&lt;/code&gt;"/>
+                from fantacalcio.it. The server validates the file and reloads
+                Serie A teams and players.</source>
+  <target>Carica l'ultimo <x id="0" equiv-text="&lt;code class=&quot;bg-app px-1.5 py-0.5 rounded text-accent&quot;&gt;"/>quotazioni.xlsx<x id="1" equiv-text="&lt;/code&gt;"/> da fantacalcio.it. Il server valida il file e ricarica le squadre di Serie A e i giocatori.</target>
+</trans-unit>
+<trans-unit id="sea694553dbb861a2">
+  <source>Drop quotazioni.xlsx here</source>
+  <target>Trascina qui quotazioni.xlsx</target>
+</trans-unit>
+<trans-unit id="sb98fdf423ff4086a">
+  <source>or click to browse — .xlsx only</source>
+  <target>oppure clicca per cercarlo — solo .xlsx</target>
+</trans-unit>
+</body>
+</file>
+</xliff>

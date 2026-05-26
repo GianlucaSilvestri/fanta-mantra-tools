@@ -1,5 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
 import "./auction-evaluations";
@@ -30,11 +31,16 @@ interface Auction {
   teams?: Team[];
 }
 
-const STATUS_LABELS: Record<AuctionStatus, string> = {
-  INITIAL: "Initial",
-  IN_PROGRESS: "In Progress",
-  TERMINATED: "Terminated",
-};
+function statusLabel(s: AuctionStatus): string {
+  switch (s) {
+    case "INITIAL":
+      return msg("Initial");
+    case "IN_PROGRESS":
+      return msg("In Progress");
+    case "TERMINATED":
+      return msg("Terminated");
+  }
+}
 
 const STATUS_PILL: Record<AuctionStatus, string> = {
   INITIAL: "text-fg-dim border-line-strong bg-surface",
@@ -55,6 +61,7 @@ function formatDate(iso: string | null): string {
 }
 
 @customElement("auction-page")
+@localized()
 export class AuctionPage extends LitElement {
   @property({ type: Number }) auctionId!: number;
 
@@ -119,7 +126,7 @@ export class AuctionPage extends LitElement {
         STATUS_PILL[status]}
       >
         <span class=${"w-1.5 h-1.5 rounded-full " + STATUS_DOT[status]}></span>
-        ${STATUS_LABELS[status]}
+        ${statusLabel(status)}
       </span>
     `;
   }
@@ -131,7 +138,7 @@ export class AuctionPage extends LitElement {
           href="/"
           class="hover:text-fg transition-colors"
           @click=${(e: MouseEvent) => this.goHome(e)}
-        >Auctions</a>
+        >${msg("Auctions")}</a>
         ${icon("chevron", { size: 12 })}
         <span class="text-fg-dim">${a.name}</span>
       </div>
@@ -147,8 +154,10 @@ export class AuctionPage extends LitElement {
             ${this.renderStatusPill(a.status)}
           </div>
           <p class="text-[13px] text-fg-dim mt-1.5 mb-0">
-            ${a.description ?? `Created ${formatDate(a.created_at)}`} ·
-            ${a.number_of_teams} teams · ${a.number_of_auctioners} auctioners
+            ${a.description ??
+            msg(str`Created ${formatDate(a.created_at)}`)} ·
+            ${msg(str`${a.number_of_teams} teams`)} ·
+            ${msg(str`${a.number_of_auctioners} auctioners`)}
           </p>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-7">
@@ -157,7 +166,7 @@ export class AuctionPage extends LitElement {
               ${a.number_of_teams}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Teams
+              ${msg("Teams")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -165,7 +174,7 @@ export class AuctionPage extends LitElement {
               ${a.credits_per_team}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Credits
+              ${msg("Credits")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -173,7 +182,7 @@ export class AuctionPage extends LitElement {
               ${a.min_team_size}–${a.max_team_size}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Roster
+              ${msg("Roster")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -181,7 +190,7 @@ export class AuctionPage extends LitElement {
               ${a.number_of_goalkeepers}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              GK
+              ${msg("GK")}
             </div>
           </div>
         </div>
@@ -207,30 +216,32 @@ export class AuctionPage extends LitElement {
     return html`
       <main class="max-w-screen-xl mx-auto px-6 pt-8 pb-20">
         ${this.loading
-          ? html`<p class="text-fg-dim">Loading auction…</p>`
+          ? html`<p class="text-fg-dim">${msg("Loading auction…")}</p>`
           : this.notFound
             ? html`
                 <div
                   class="text-center py-16 px-6 rounded-xl border border-line bg-surface text-fg-dim"
                 >
                   <h3 class="text-[18px] font-bold text-fg m-0 mb-1.5">
-                    Auction not found
+                    ${msg("Auction not found")}
                   </h3>
                   <p class="m-0 mb-3 text-[13px]">
-                    The auction
+                    ${msg(html`The auction
                     <code class="font-mono text-fg">#${this.auctionId}</code>
-                    may have been deleted.
+                    may have been deleted.`)}
                   </p>
                   <a
                     href="/"
                     class="text-accent hover:underline"
                     @click=${(e: MouseEvent) => this.goHome(e)}
-                  >← Back to auctions</a>
+                  >${msg("← Back to auctions")}</a>
                 </div>
               `
             : this.loadError || !this.auction
               ? html`<p class="text-danger">
-                  Failed to load: ${this.loadError || "unknown error"}
+                  ${msg(
+                    str`Failed to load: ${this.loadError || msg("unknown error")}`,
+                  )}
                 </p>`
               : html`
                   ${this.renderHeader(this.auction)}

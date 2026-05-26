@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
 
@@ -37,11 +38,16 @@ interface FormState {
   number_of_goalkeepers: number;
 }
 
-const STATUS_LABELS: Record<AuctionStatus, string> = {
-  INITIAL: "Initial",
-  IN_PROGRESS: "In Progress",
-  TERMINATED: "Terminated",
-};
+function statusLabel(s: AuctionStatus): string {
+  switch (s) {
+    case "INITIAL":
+      return msg("Initial");
+    case "IN_PROGRESS":
+      return msg("In Progress");
+    case "TERMINATED":
+      return msg("Terminated");
+  }
+}
 
 const DEFAULT_FORM: FormState = {
   name: "",
@@ -60,6 +66,7 @@ const labelCls =
   "text-[11px] font-semibold uppercase tracking-wider text-fg-muted";
 
 @customElement("auction-dialog")
+@localized()
 export class AuctionDialog extends LitElement {
   @property({ type: String }) mode: DialogMode = "create";
   @property({ attribute: false }) auction: Auction | null = null;
@@ -152,7 +159,9 @@ export class AuctionDialog extends LitElement {
     if (!name) return;
     if (this.savedTeams.length >= this.form.number_of_auctioners) {
       this.messageKind = "err";
-      this.message = `Cannot add more than ${this.form.number_of_auctioners} teams (auctioners cap)`;
+      this.message = msg(
+        str`Cannot add more than ${this.form.number_of_auctioners} teams (auctioners cap)`,
+      );
       return;
     }
     try {
@@ -200,18 +209,18 @@ export class AuctionDialog extends LitElement {
     if (this.busy) return;
     if (this.form.max_team_size < this.form.min_team_size) {
       this.messageKind = "err";
-      this.message = "MAX players / team must be >= MIN";
+      this.message = msg("MAX players / team must be >= MIN");
       return;
     }
     if (!this.form.name.trim()) {
       this.messageKind = "err";
-      this.message = "Name is required";
+      this.message = msg("Name is required");
       return;
     }
 
     this.busy = true;
     this.messageKind = "busy";
-    this.message = "Saving…";
+    this.message = msg("Saving…");
 
     try {
       if (this.mode === "create") {
@@ -219,11 +228,13 @@ export class AuctionDialog extends LitElement {
           .map((t) => t.trim())
           .filter((t) => t.length > 0);
         if (new Set(teams).size !== teams.length) {
-          throw new Error("Team names must be unique");
+          throw new Error(msg("Team names must be unique"));
         }
         if (teams.length > this.form.number_of_auctioners) {
           throw new Error(
-            `Cannot have more than ${this.form.number_of_auctioners} teams (auctioners cap)`,
+            msg(
+              str`Cannot have more than ${this.form.number_of_auctioners} teams (auctioners cap)`,
+            ),
           );
         }
         const body = {
@@ -297,9 +308,10 @@ export class AuctionDialog extends LitElement {
       >
         ${icon("alert", { size: 14 })}
         <span>
-          This auction is
-          <b>${STATUS_LABELS[status]}</b>. Most fields are locked — only the
-          name can be edited.
+          ${msg(
+            html`This auction is <b>${statusLabel(status)}</b>. Most fields
+              are locked — only the name can be edited.`,
+          )}
         </span>
       </div>
     `;
@@ -312,10 +324,12 @@ export class AuctionDialog extends LitElement {
     return html`
       <div class="mb-3.5">
         <div class="flex items-baseline justify-between mb-1.5">
-          <div class=${labelCls}>Teams (${teams.length} / ${cap})</div>
+          <div class=${labelCls}>
+            ${msg(str`Teams (${teams.length} / ${cap})`)}
+          </div>
           ${atCap
             ? html`<div class="text-[11px] text-warn">
-                Auctioners cap reached
+                ${msg("Auctioners cap reached")}
               </div>`
             : nothing}
         </div>
@@ -331,12 +345,12 @@ export class AuctionDialog extends LitElement {
                   .value=${t}
                   @input=${(e: Event) =>
                     this.setNewTeam(i, (e.target as HTMLInputElement).value)}
-                  placeholder="Team name"
+                  placeholder=${msg("Team name")}
                   class="flex-1 bg-transparent border-0 text-fg text-[13px] focus:outline-none p-0"
                 />
                 <button
                   type="button"
-                  aria-label="Remove team"
+                  aria-label=${msg("Remove team")}
                   @click=${() => this.removeNewTeamSlot(i)}
                   class="w-7 h-7 grid place-items-center rounded text-danger hover:bg-danger/10"
                 >${icon("trash", { size: 14 })}</button>
@@ -355,7 +369,9 @@ export class AuctionDialog extends LitElement {
                   this.addNewTeamSlot();
                 }
               }}
-              placeholder=${atCap ? "Increase auctioners to add more" : "+ add team and press Enter"}
+              placeholder=${atCap
+                ? msg("Increase auctioners to add more")
+                : msg("+ add team and press Enter")}
               class="flex-1 bg-transparent border-0 text-fg text-[13px] px-2 py-1.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
             />
             <button
@@ -363,7 +379,7 @@ export class AuctionDialog extends LitElement {
               ?disabled=${atCap || !this.newTeamDraft.trim()}
               @click=${() => this.addNewTeamSlot()}
               class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40 disabled:cursor-not-allowed"
-            >Add</button>
+            >${msg("Add")}</button>
           </div>
         </div>
       </div>
@@ -377,11 +393,11 @@ export class AuctionDialog extends LitElement {
       <div class="mb-3.5">
         <div class="flex items-baseline justify-between mb-1.5">
           <div class=${labelCls}>
-            Teams (${this.savedTeams.length} / ${cap})
+            ${msg(str`Teams (${this.savedTeams.length} / ${cap})`)}
           </div>
           ${atCap
             ? html`<div class="text-[11px] text-warn">
-                Auctioners cap reached
+                ${msg("Auctioners cap reached")}
               </div>`
             : nothing}
         </div>
@@ -390,7 +406,7 @@ export class AuctionDialog extends LitElement {
         >
           ${this.savedTeams.length === 0
             ? html`<div class="text-[13px] text-fg-muted italic px-1 py-1">
-                No teams yet.
+                ${msg("No teams yet.")}
               </div>`
             : this.savedTeams.map(
                 (t) => html`
@@ -400,7 +416,7 @@ export class AuctionDialog extends LitElement {
                     <span class="flex-1 text-[13px]">${t.team_name}</span>
                     <button
                       type="button"
-                      aria-label="Remove team"
+                      aria-label=${msg("Remove team")}
                       @click=${() => this.removeSavedTeam(t.id)}
                       class="w-7 h-7 grid place-items-center rounded text-danger hover:bg-danger/10"
                     >${icon("trash", { size: 14 })}</button>
@@ -419,7 +435,9 @@ export class AuctionDialog extends LitElement {
                   void this.addSavedTeam();
                 }
               }}
-              placeholder=${atCap ? "Increase auctioners to add more" : "+ add team and press Enter"}
+              placeholder=${atCap
+                ? msg("Increase auctioners to add more")
+                : msg("+ add team and press Enter")}
               class="flex-1 bg-transparent border-0 text-fg text-[13px] px-2 py-1.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
             />
             <button
@@ -427,7 +445,7 @@ export class AuctionDialog extends LitElement {
               ?disabled=${atCap || !this.newTeamDraft.trim()}
               @click=${() => this.addSavedTeam()}
               class="px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40 disabled:cursor-not-allowed"
-            >Add</button>
+            >${msg("Add")}</button>
           </div>
         </div>
       </div>
@@ -435,7 +453,7 @@ export class AuctionDialog extends LitElement {
   }
 
   override render() {
-    const title = this.mode === "create" ? "Create auction" : "Edit auction";
+    const title = this.mode === "create" ? msg("Create auction") : msg("Edit auction");
     const locked = this.mode === "edit" && this.auction
       ? this.auction.status !== "INITIAL"
       : false;
@@ -459,7 +477,7 @@ export class AuctionDialog extends LitElement {
             <h3 class="text-[16px] font-bold m-0">${title}</h3>
             <button
               type="button"
-              aria-label="Close"
+              aria-label=${msg("Close")}
               @click=${() => this.close()}
               class="w-9 h-9 grid place-items-center rounded text-fg-dim hover:bg-surface-hover hover:text-fg"
             >${icon("x", { size: 18 })}</button>
@@ -471,7 +489,7 @@ export class AuctionDialog extends LitElement {
               : nothing}
 
             <div class="mb-3.5">
-              <label class=${labelCls + " block mb-1.5"}>Name</label>
+              <label class=${labelCls + " block mb-1.5"}>${msg("Name")}</label>
               <input
                 type="text"
                 required
@@ -479,13 +497,13 @@ export class AuctionDialog extends LitElement {
                 .value=${this.form.name}
                 @input=${(e: Event) =>
                   this.setForm("name", (e.target as HTMLInputElement).value)}
-                placeholder="e.g. Lega Boys 2025/26"
+                placeholder=${msg("e.g. Lega Boys 2025/26")}
                 class=${inputCls}
               />
             </div>
 
             <div class="mb-3.5">
-              <label class=${labelCls + " block mb-1.5"}>Description</label>
+              <label class=${labelCls + " block mb-1.5"}>${msg("Description")}</label>
               <input
                 type="text"
                 .value=${this.form.description}
@@ -498,7 +516,7 @@ export class AuctionDialog extends LitElement {
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
               <div>
-                <label class=${labelCls + " block mb-1.5"}>Credits per team</label>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Credits per team")}</label>
                 <input
                   type="number"
                   min="1"
@@ -513,7 +531,7 @@ export class AuctionDialog extends LitElement {
                 />
               </div>
               <div>
-                <label class=${labelCls + " block mb-1.5"}>Goalkeepers</label>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Goalkeepers")}</label>
                 <input
                   type="number"
                   min="0"
@@ -531,7 +549,7 @@ export class AuctionDialog extends LitElement {
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
               <div>
-                <label class=${labelCls + " block mb-1.5"}>Min players / team</label>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Min players / team")}</label>
                 <input
                   type="number"
                   min="1"
@@ -546,7 +564,7 @@ export class AuctionDialog extends LitElement {
                 />
               </div>
               <div>
-                <label class=${labelCls + " block mb-1.5"}>Max players / team</label>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Max players / team")}</label>
                 <input
                   type="number"
                   min="1"
@@ -563,7 +581,7 @@ export class AuctionDialog extends LitElement {
             </div>
 
             <div class="mb-3.5">
-              <label class=${labelCls + " block mb-1.5"}>Auctioners</label>
+              <label class=${labelCls + " block mb-1.5"}>${msg("Auctioners")}</label>
               <input
                 type="number"
                 min="1"
@@ -597,13 +615,13 @@ export class AuctionDialog extends LitElement {
               type="button"
               @click=${() => this.close()}
               class="px-3.5 py-2 rounded text-[13px] font-semibold border border-transparent bg-transparent text-fg hover:bg-surface-hover hover:border-line"
-            >Cancel</button>
+            >${msg("Cancel")}</button>
             <button
               type="submit"
               ?disabled=${this.busy}
               class="px-3.5 py-2 rounded text-[13px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              ${this.mode === "create" ? "Create auction" : "Save changes"}
+              ${this.mode === "create" ? msg("Create auction") : msg("Save changes")}
             </button>
           </div>
         </form>

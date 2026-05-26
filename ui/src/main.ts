@@ -1,2 +1,5 @@
 import "./index.css";
-import "./components/app-root";
+import { bootLocale } from "./locale";
+
+await bootLocale();
+await import("./components/app-root");

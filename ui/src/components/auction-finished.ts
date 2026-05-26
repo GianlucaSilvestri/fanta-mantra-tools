@@ -1,5 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { localized, msg } from "@lit/localize";
 
 import { icon } from "../icons";
 
@@ -9,6 +10,7 @@ interface Auction {
 }
 
 @customElement("auction-finished")
+@localized()
 export class AuctionFinished extends LitElement {
   @property({ attribute: false }) auction!: Auction;
 
@@ -23,11 +25,11 @@ export class AuctionFinished extends LitElement {
           class="w-14 h-14 grid place-items-center mx-auto mb-3.5 rounded-xl border border-line bg-surface text-accent"
         >${icon("check", { size: 22 })}</div>
         <h3 class="text-[18px] font-bold text-fg m-0 mb-1.5">
-          Auction complete
+          ${msg("Auction complete")}
         </h3>
         <p class="text-[13px] text-fg-dim max-w-[360px] mx-auto m-0">
-          Final rosters and summary stats for <b>${this.auction.name}</b> will
-          appear here. Designs to be defined.
+          ${msg(html`Final rosters and summary stats for
+          <b>${this.auction.name}</b> will appear here. Designs to be defined.`)}
         </p>
       </div>
     `;

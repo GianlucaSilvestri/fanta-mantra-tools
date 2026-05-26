@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
 import "./auction-dialog";
@@ -31,11 +32,16 @@ interface Auction {
 
 type DialogMode = "create" | "edit";
 
-const STATUS_LABELS: Record<AuctionStatus, string> = {
-  INITIAL: "Initial",
-  IN_PROGRESS: "In Progress",
-  TERMINATED: "Terminated",
-};
+function statusLabel(s: AuctionStatus): string {
+  switch (s) {
+    case "INITIAL":
+      return msg("Initial");
+    case "IN_PROGRESS":
+      return msg("In Progress");
+    case "TERMINATED":
+      return msg("Terminated");
+  }
+}
 
 const STATUS_PILL: Record<AuctionStatus, string> = {
   INITIAL:
@@ -53,11 +59,16 @@ const STATUS_DOT: Record<AuctionStatus, string> = {
   TERMINATED: "bg-fg-muted",
 };
 
-const PRIMARY_LABEL: Record<AuctionStatus, string> = {
-  INITIAL: "Continue setup",
-  IN_PROGRESS: "Resume auction",
-  TERMINATED: "View results",
-};
+function primaryLabel(s: AuctionStatus): string {
+  switch (s) {
+    case "INITIAL":
+      return msg("Continue setup");
+    case "IN_PROGRESS":
+      return msg("Resume auction");
+    case "TERMINATED":
+      return msg("View results");
+  }
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -65,6 +76,7 @@ function formatDate(iso: string | null): string {
 }
 
 @customElement("home-page")
+@localized()
 export class HomePage extends LitElement {
   @state() private auctions: Auction[] = [];
   @state() private loading = true;
@@ -141,14 +153,22 @@ export class HomePage extends LitElement {
   };
 
   private async deleteAuction(a: Auction): Promise<void> {
-    if (!confirm(`Delete auction "${a.name}"? Teams and evaluations will be lost.`))
+    if (
+      !confirm(
+        msg(str`Delete auction "${a.name}"? Teams and evaluations will be lost.`),
+      )
+    )
       return;
     try {
       const res = await fetch(`${BACKEND_URL}/auctions/${a.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await this.loadAuctions();
     } catch (err) {
-      alert(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`);
+      alert(
+        msg(
+          str`Failed to delete: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
     }
   }
 
@@ -159,7 +179,7 @@ export class HomePage extends LitElement {
         STATUS_PILL[status]}
       >
         <span class=${"w-1.5 h-1.5 rounded-full " + STATUS_DOT[status]}></span>
-        ${STATUS_LABELS[status]}
+        ${statusLabel(status)}
       </span>
     `;
   }
@@ -170,7 +190,9 @@ export class HomePage extends LitElement {
     const hidden = teams.length - visible.length;
     if (teams.length === 0) {
       return html`
-        <div class="text-[12px] text-fg-muted italic">No teams yet</div>
+        <div class="text-[12px] text-fg-muted italic">
+          ${msg("No teams yet")}
+        </div>
       `;
     }
     return html`
@@ -185,7 +207,7 @@ export class HomePage extends LitElement {
         ${hidden > 0
           ? html`<span
               class="text-[11px] px-1.5 py-[3px] rounded border border-dashed border-line text-fg-muted"
-            >+${hidden} more</span>`
+            >${msg(str`+${hidden} more`)}</span>`
           : nothing}
       </div>
     `;
@@ -200,7 +222,7 @@ export class HomePage extends LitElement {
           <div class="min-w-0">
             <h3 class="text-[17px] font-bold tracking-tight m-0 truncate">${a.name}</h3>
             <div class="text-[12px] text-fg-muted mt-0.5 truncate">
-              ${a.description ?? `created ${formatDate(a.created_at)}`}
+              ${a.description ?? msg(str`created ${formatDate(a.created_at)}`)}
             </div>
           </div>
           ${this.renderStatusPill(a.status)}
@@ -214,7 +236,7 @@ export class HomePage extends LitElement {
               ${a.number_of_teams}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Teams
+              ${msg("Teams")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5 min-w-0">
@@ -222,7 +244,7 @@ export class HomePage extends LitElement {
               ${a.credits_per_team}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Credits
+              ${msg("Credits")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5 min-w-0">
@@ -230,7 +252,7 @@ export class HomePage extends LitElement {
               ${a.min_team_size}–${a.max_team_size}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              Roster
+              ${msg("Roster")}
             </div>
           </div>
           <div class="flex flex-col gap-0.5 min-w-0">
@@ -238,7 +260,7 @@ export class HomePage extends LitElement {
               ${a.number_of_goalkeepers}
             </div>
             <div class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-              GK
+              ${msg("GK")}
             </div>
           </div>
         </div>
@@ -254,23 +276,23 @@ export class HomePage extends LitElement {
             @click=${() => this.navigateToAuction(a.id)}
             class="inline-flex items-center gap-2 px-3 py-1.5 rounded text-[12px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] transition-colors"
           >
-            ${PRIMARY_LABEL[a.status]}
+            ${primaryLabel(a.status)}
             ${icon("arrow-right", { size: 14 })}
           </button>
           <div class="flex-1"></div>
           ${a.status === "INITIAL"
             ? html`<button
                 type="button"
-                aria-label="Edit"
-                title="Edit"
+                aria-label=${msg("Edit")}
+                title=${msg("Edit")}
                 @click=${() => this.openEditDialog(a)}
                 class="w-8 h-8 grid place-items-center rounded border border-transparent text-fg-dim hover:text-fg hover:bg-surface-hover hover:border-line-strong transition-colors"
               >${icon("pencil", { size: 14 })}</button>`
             : nothing}
           <button
             type="button"
-            aria-label="Delete"
-            title="Delete"
+            aria-label=${msg("Delete")}
+            title=${msg("Delete")}
             @click=${() => this.deleteAuction(a)}
             class="w-8 h-8 grid place-items-center rounded text-danger hover:bg-danger/10 hover:border-danger/30 border border-transparent transition-colors"
           >${icon("trash", { size: 14 })}</button>
@@ -287,7 +309,7 @@ export class HomePage extends LitElement {
         class="flex flex-col items-center justify-center gap-2 min-h-[220px] rounded-xl border border-dashed border-line text-fg-dim bg-surface/40 hover:text-accent hover:border-accent/30 transition-colors"
       >
         ${icon("plus", { size: 28 })}
-        <div class="font-semibold text-[14px]">New auction</div>
+        <div class="font-semibold text-[14px]">${msg("New auction")}</div>
       </button>
     `;
   }
@@ -297,9 +319,11 @@ export class HomePage extends LitElement {
       <main class="max-w-screen-xl mx-auto px-6 pt-8 pb-20">
         <div class="flex items-end justify-between gap-4 mb-6">
           <div>
-            <h1 class="text-[28px] font-bold tracking-tight m-0">Auctions</h1>
+            <h1 class="text-[28px] font-bold tracking-tight m-0">
+              ${msg("Auctions")}
+            </h1>
             <p class="text-fg-dim m-0 mt-1 text-[14px]">
-              Pick an auction to continue, or create a new one.
+              ${msg("Pick an auction to continue, or create a new one.")}
             </p>
           </div>
           <button
@@ -308,14 +332,16 @@ export class HomePage extends LitElement {
             class="inline-flex items-center gap-2 px-[18px] py-3 rounded text-[14px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] transition-colors"
           >
             ${icon("plus", { size: 16 })}
-            New auction
+            ${msg("New auction")}
           </button>
         </div>
 
         ${this.loading
-          ? html`<p class="text-fg-dim">Loading auctions…</p>`
+          ? html`<p class="text-fg-dim">${msg("Loading auctions…")}</p>`
           : this.loadError
-            ? html`<p class="text-danger">Failed to load: ${this.loadError}</p>`
+            ? html`<p class="text-danger">
+                ${msg(str`Failed to load: ${this.loadError}`)}
+              </p>`
             : html`
                 <div
                   class="grid gap-4"

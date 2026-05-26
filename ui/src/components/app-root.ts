@@ -1,5 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
 import "./home-page";
@@ -24,6 +25,7 @@ function parseRoute(pathname: string): Route {
 }
 
 @customElement("app-root")
+@localized()
 export class AppRoot extends LitElement {
   @state() private path: string = window.location.pathname;
 
@@ -78,8 +80,7 @@ export class AppRoot extends LitElement {
         return html`
           <main class="mx-auto max-w-screen-xl px-6 py-12">
             <p class="text-fg-dim">
-              Not found:
-              <code class="font-mono text-fg">${this.path}</code>
+              ${msg(str`Not found: ${this.path}`)}
             </p>
           </main>
         `;
@@ -112,13 +113,13 @@ export class AppRoot extends LitElement {
               ? "text-accent"
               : "text-fg-dim hover:text-fg hover:bg-surface")}
             @click=${(e: MouseEvent) => this.navigate(e, "/")}
-          >Home</a>
+          >${msg("Home")}</a>
         </nav>
         <div class="flex-1"></div>
         <a
           href="/settings"
-          aria-label="Settings"
-          title="Settings"
+          aria-label=${msg("Settings")}
+          title=${msg("Settings")}
           class=${"w-9 h-9 grid place-items-center rounded border transition-colors " +
           (settingsActive
             ? "text-accent border-line"
