@@ -63,6 +63,15 @@ class Player(Base):
     )
     fanta_evaluation: Mapped[int | None] = mapped_column(Integer)
     fanta_market_value: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class Auction(Base):
@@ -119,13 +128,15 @@ class AuctionTeam(Base):
     )
 
 
-class AuctionEvaluation(Base):
-    __tablename__ = "auction_evaluations"
+class AuctionPlayer(Base):
+    __tablename__ = "auction_players"
 
-    # player_id mirrors Player.id but is intentionally NOT a foreign key so
-    # that the TRUNCATE players that runs on every xlsx re-import doesn't
-    # cascade into here. Orphaned rows (for players gone from a later xlsx)
-    # are tolerated.
+    # Frozen snapshot of the relevant players columns at the moment of
+    # first insertion (typically the first user evaluation, or the
+    # INITIAL → IN_PROGRESS transition top-up). player_id mirrors
+    # Player.id but is intentionally NOT a foreign key so that the
+    # TRUNCATE players run on every xlsx re-import doesn't cascade into
+    # here — once a row is in, the auction owns it.
     auction_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("auction.id", ondelete="CASCADE"),
@@ -135,4 +146,20 @@ class AuctionEvaluation(Base):
     player_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=False
     )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    team: Mapped[str] = mapped_column(Text, nullable=False)
+    mantra_roles: Mapped[list[MantraRole]] = mapped_column(
+        ARRAY(mantra_role_enum), nullable=False
+    )
+    fanta_evaluation: Mapped[int | None] = mapped_column(Integer)
+    fanta_market_value: Mapped[int | None] = mapped_column(Integer)
     evaluation: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

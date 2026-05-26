@@ -5,7 +5,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import select
 
 from backend.app.db import SessionLocal
-from backend.app.models import AuctionEvaluation, Player
+from backend.app.models import AuctionPlayer, Player
 from backend.scripts.import_players import parse_players, write_players
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -34,11 +34,11 @@ def list_players(auction_id: int | None = Query(default=None)) -> list[dict]:
             return [_serialize(p, None) for p in session.execute(stmt).scalars().all()]
 
         stmt = (
-            select(Player, AuctionEvaluation.evaluation)
+            select(Player, AuctionPlayer.evaluation)
             .outerjoin(
-                AuctionEvaluation,
-                (AuctionEvaluation.player_id == Player.id)
-                & (AuctionEvaluation.auction_id == auction_id),
+                AuctionPlayer,
+                (AuctionPlayer.player_id == Player.id)
+                & (AuctionPlayer.auction_id == auction_id),
             )
             .order_by(Player.fanta_evaluation.desc().nullslast(), Player.name.asc())
         )

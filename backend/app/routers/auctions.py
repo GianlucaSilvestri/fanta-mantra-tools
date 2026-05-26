@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from backend.app.db import SessionLocal
 from backend.app.models import (
     Auction,
-    AuctionEvaluation,
+    AuctionPlayer,
     AuctionStatus,
     AuctionTeam,
     Player,
@@ -65,7 +65,7 @@ class EvaluationPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    evaluation: int | None = Field(default=None, ge=0)
+    evaluation: int | None = Field(default=None, ge=1)
 
 
 # Fields a PATCH cannot touch when the auction has moved past INITIAL.
@@ -301,29 +301,41 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ),
                     )
 
-                # Freeze the player set into auction_evaluations: any player
-                # not yet evaluated for this auction gets a 0, so post-start
-                # state has exactly one row per player with a non-null value.
+                # Freeze the player set into auction_players: every player
+                # not yet snapshotted for this auction gets a row with the
+                # current `players` snapshot and evaluation=0. Existing rows
+                # are left alone — their snapshots stay as-set, their
+                # evaluation stays as the user set it.
                 session.execute(
-                    pg_insert(AuctionEvaluation)
+                    pg_insert(AuctionPlayer)
                     .from_select(
-                        ["auction_id", "player_id", "evaluation"],
-                        select(literal(auction_id), Player.id, literal(0)),
+                        [
+                            "auction_id",
+                            "player_id",
+                            "name",
+                            "team",
+                            "mantra_roles",
+                            "fanta_evaluation",
+                            "fanta_market_value",
+                            "evaluation",
+                        ],
+                        select(
+                            literal(auction_id),
+                            Player.id,
+                            Player.name,
+                            Player.team,
+                            Player.mantra_roles,
+                            Player.fanta_evaluation,
+                            Player.fanta_market_value,
+                            literal(0),
+                        ),
                     )
                     .on_conflict_do_nothing(
                         index_elements=[
-                            AuctionEvaluation.auction_id,
-                            AuctionEvaluation.player_id,
+                            AuctionPlayer.auction_id,
+                            AuctionPlayer.player_id,
                         ],
                     )
-                )
-                session.execute(
-                    AuctionEvaluation.__table__.update()
-                    .where(
-                        AuctionEvaluation.auction_id == auction_id,
-                        AuctionEvaluation.evaluation.is_(None),
-                    )
-                    .values(evaluation=0)
                 )
 
             for k, v in fields.items():
@@ -426,28 +438,39 @@ def patch_evaluation(auction_id: int, player_id: int, patch: EvaluationPatch) ->
                     status_code=409,
                     detail=f"auction is {auction.status.value}; evaluations can only be edited while INITIAL",
                 )
-            if not session.get(Player, player_id):
+            player = session.get(Player, player_id)
+            if player is None:
                 raise HTTPException(status_code=404, detail=f"player {player_id} not found")
 
-            stmt = pg_insert(AuctionEvaluation).values(
-                auction_id=auction_id, player_id=player_id, **fields
+            # Snapshot the current player columns on first insert; on
+            # conflict only refresh the evaluation. The frozen snapshot
+            # stays put for the lifetime of the auction.
+            stmt = pg_insert(AuctionPlayer).values(
+                auction_id=auction_id,
+                player_id=player_id,
+                name=player.name,
+                team=player.team,
+                mantra_roles=player.mantra_roles,
+                fanta_evaluation=player.fanta_evaluation,
+                fanta_market_value=player.fanta_market_value,
+                **fields,
             )
             stmt = stmt.on_conflict_do_update(
-                index_elements=[AuctionEvaluation.auction_id, AuctionEvaluation.player_id],
+                index_elements=[AuctionPlayer.auction_id, AuctionPlayer.player_id],
                 set_=fields,
             )
             session.execute(stmt)
 
-            ue = session.execute(
-                select(AuctionEvaluation).where(
-                    AuctionEvaluation.auction_id == auction_id,
-                    AuctionEvaluation.player_id == player_id,
+            ap = session.execute(
+                select(AuctionPlayer).where(
+                    AuctionPlayer.auction_id == auction_id,
+                    AuctionPlayer.player_id == player_id,
                 )
             ).scalar_one()
             return {
-                "auction_id": ue.auction_id,
-                "player_id": ue.player_id,
-                "evaluation": ue.evaluation,
+                "auction_id": ap.auction_id,
+                "player_id": ap.player_id,
+                "evaluation": ap.evaluation,
             }
 
 
@@ -459,18 +482,16 @@ def _compute_evaluation_status(session, auction: Auction) -> dict:
     """
     stmt = (
         select(
-            func.count(AuctionEvaluation.evaluation).label("evaluated_count"),
-            func.coalesce(func.sum(AuctionEvaluation.evaluation), 0).label("stored_sum"),
-            func.count(AuctionEvaluation.evaluation)
-            .filter(Player.mantra_roles.any(GK_ROLE))
+            func.count(AuctionPlayer.evaluation).label("evaluated_count"),
+            func.coalesce(func.sum(AuctionPlayer.evaluation), 0).label("stored_sum"),
+            func.count(AuctionPlayer.evaluation)
+            .filter(AuctionPlayer.mantra_roles.any(GK_ROLE))
             .label("goalkeepers_count"),
         )
-        .select_from(AuctionEvaluation)
-        .join(Player, Player.id == AuctionEvaluation.player_id)
         .where(
-            AuctionEvaluation.auction_id == auction.id,
-            AuctionEvaluation.evaluation.is_not(None),
-            AuctionEvaluation.evaluation > 0,
+            AuctionPlayer.auction_id == auction.id,
+            AuctionPlayer.evaluation.is_not(None),
+            AuctionPlayer.evaluation > 0,
         )
     )
     evaluated_count, stored_sum, goalkeepers_count = session.execute(stmt).one()
@@ -512,7 +533,7 @@ def _compute_evaluation_status(session, auction: Auction) -> dict:
 
 @router.get("/{auction_id}/evaluations/status")
 def get_evaluation_status(auction_id: int) -> dict:
-    """Completeness snapshot of the auction_evaluations for a given auction.
+    """Completeness snapshot of the auction_players for a given auction.
 
     Drives the indicator card on the home page. Targets come from the auction's
     own preference columns.
@@ -550,18 +571,17 @@ def export_evaluations(auction_id: int) -> Response:
 
         rows = session.execute(
             select(
-                AuctionEvaluation.player_id,
-                AuctionEvaluation.evaluation,
-                Player.name,
-                Player.team,
-                Player.mantra_roles,
+                AuctionPlayer.player_id,
+                AuctionPlayer.evaluation,
+                AuctionPlayer.name,
+                AuctionPlayer.team,
+                AuctionPlayer.mantra_roles,
             )
-            .join(Player, Player.id == AuctionEvaluation.player_id)
             .where(
-                AuctionEvaluation.auction_id == auction_id,
-                AuctionEvaluation.evaluation.is_not(None),
+                AuctionPlayer.auction_id == auction_id,
+                AuctionPlayer.evaluation.is_not(None),
             )
-            .order_by(Player.name.asc())
+            .order_by(AuctionPlayer.name.asc())
         ).all()
 
     buf = io.StringIO()
@@ -590,7 +610,7 @@ def export_evaluations(auction_id: int) -> Response:
 async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> dict:
     """Import evaluations from a CSV produced by /export (or hand-edited).
 
-    Merge semantics: rows in the CSV upsert into `auction_evaluations`;
+    Merge semantics: rows in the CSV upsert into `auction_players`;
     players absent from the CSV keep whatever they had. An empty
     `evaluation` cell clears that player's value. Unknown `player_id`s
     are skipped and reported in the response.
@@ -635,9 +655,9 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                     detail=f"auction is {auction.status.value}; evaluations can only be imported while INITIAL",
                 )
 
-            existing_ids: set[int] = set(
-                session.execute(select(Player.id)).scalars()
-            )
+            players_by_id: dict[int, Player] = {
+                p.id: p for p in session.execute(select(Player)).scalars()
+            }
 
             upserts: list[dict] = []
             unknown: list[int] = []
@@ -663,19 +683,17 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                     except ValueError:
                         invalid_rows.append(f"line {line_no}: non-integer evaluation {raw_eval!r}")
                         continue
-                    if evaluation < 0:
+                    if evaluation < 1:
                         invalid_rows.append(
-                            f"line {line_no}: evaluation must be >= 0 (got {evaluation})"
+                            f"line {line_no}: evaluation must be >= 1 (got {evaluation})"
                         )
                         continue
 
-                if pid not in existing_ids:
+                if pid not in players_by_id:
                     unknown.append(pid)
                     continue
 
-                upserts.append(
-                    {"auction_id": auction_id, "player_id": pid, "evaluation": evaluation}
-                )
+                upserts.append({"player_id": pid, "evaluation": evaluation})
 
             if invalid_rows:
                 raise HTTPException(
@@ -687,11 +705,21 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
             deduped: dict[int, dict] = {row["player_id"]: row for row in upserts}
 
             for row in deduped.values():
-                stmt = pg_insert(AuctionEvaluation).values(**row)
+                player = players_by_id[row["player_id"]]
+                stmt = pg_insert(AuctionPlayer).values(
+                    auction_id=auction_id,
+                    player_id=player.id,
+                    name=player.name,
+                    team=player.team,
+                    mantra_roles=player.mantra_roles,
+                    fanta_evaluation=player.fanta_evaluation,
+                    fanta_market_value=player.fanta_market_value,
+                    evaluation=row["evaluation"],
+                )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=[
-                        AuctionEvaluation.auction_id,
-                        AuctionEvaluation.player_id,
+                        AuctionPlayer.auction_id,
+                        AuctionPlayer.player_id,
                     ],
                     set_={"evaluation": stmt.excluded.evaluation},
                 )
@@ -705,7 +733,7 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
 
 @router.post("/{auction_id}/evaluations/autofill")
 def autofill_evaluations(auction_id: int) -> dict:
-    """Replace all auction_evaluations with an algorithmic autofill.
+    """Replace all auction_players with an algorithmic autofill.
 
     Uses fanta_market_value as the anchor and produces a set sized to
     N × max_team_size, summing to N × 1000 (base-1000), with exactly
@@ -738,45 +766,32 @@ def autofill_evaluations(auction_id: int) -> dict:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
             session.execute(
-                delete(AuctionEvaluation).where(
-                    AuctionEvaluation.auction_id == auction_id
+                delete(AuctionPlayer).where(
+                    AuctionPlayer.auction_id == auction_id
                 )
             )
             if values:
+                players_by_id: dict[int, Player] = {
+                    p.id: p
+                    for p in session.execute(
+                        select(Player).where(Player.id.in_(values.keys()))
+                    ).scalars()
+                }
                 session.execute(
-                    pg_insert(AuctionEvaluation),
+                    pg_insert(AuctionPlayer),
                     [
                         {
                             "auction_id": auction_id,
                             "player_id": pid,
+                            "name": players_by_id[pid].name,
+                            "team": players_by_id[pid].team,
+                            "mantra_roles": players_by_id[pid].mantra_roles,
+                            "fanta_evaluation": players_by_id[pid].fanta_evaluation,
+                            "fanta_market_value": players_by_id[pid].fanta_market_value,
                             "evaluation": v,
                         }
                         for pid, v in values.items()
                     ],
                 )
 
-            # Every remaining player gets a 0, so the table covers every
-            # known player after autofill (parallel to the start-auction flow).
-            session.execute(
-                pg_insert(AuctionEvaluation)
-                .from_select(
-                    ["auction_id", "player_id", "evaluation"],
-                    select(literal(auction_id), Player.id, literal(0)),
-                )
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        AuctionEvaluation.auction_id,
-                        AuctionEvaluation.player_id,
-                    ],
-                )
-            )
-            zeroed = int(
-                session.execute(
-                    select(func.count(AuctionEvaluation.player_id)).where(
-                        AuctionEvaluation.auction_id == auction_id,
-                        AuctionEvaluation.evaluation == 0,
-                    )
-                ).scalar_one()
-            )
-
-    return {"autofilled": len(values), "zeroed": zeroed}
+    return {"autofilled": len(values)}

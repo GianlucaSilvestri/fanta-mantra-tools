@@ -1,4 +1,4 @@
-"""Algorithmic autofill of auction_evaluations from fanta_market_value.
+"""Algorithmic autofill of auction_players from fanta_market_value.
 
 Two-phase algorithm:
 

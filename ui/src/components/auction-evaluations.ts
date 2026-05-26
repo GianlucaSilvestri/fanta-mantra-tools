@@ -217,7 +217,7 @@ export class AuctionEvaluations extends LitElement {
   private async save(playerId: number, raw: string): Promise<void> {
     const trimmed = raw.trim();
     const displayed: number | null = trimmed === "" ? null : Number.parseInt(trimmed, 10);
-    if (displayed !== null && (Number.isNaN(displayed) || displayed < 0)) {
+    if (displayed !== null && (Number.isNaN(displayed) || displayed < 1)) {
       this.saveErrors = new Set(this.saveErrors).add(playerId);
       return;
     }
@@ -626,7 +626,7 @@ export class AuctionEvaluations extends LitElement {
         <td class="px-3 py-[7px] text-[13px] text-right w-[120px] border-b border-line">
           <input
             type="number"
-            min="0"
+            min="1"
             step="1"
             .value=${scaledEval === null ? "" : String(scaledEval)}
             @change=${(e: Event) => this.save(p.id, (e.target as HTMLInputElement).value)}

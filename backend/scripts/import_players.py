@@ -92,11 +92,46 @@ def parse_players(source: Source) -> list[Player]:
 
 
 def write_players(rows: list[Player]) -> int:
-    """Replace the players table with `rows` atomically (TRUNCATE + INSERT)."""
+    """Replace the players table with `rows` atomically (TRUNCATE + INSERT).
+
+    Two side effects on `auction_players` keep frozen snapshots aligned
+    with the new player pool:
+      * Rows for players that vanished from the xlsx are deleted from
+        INITIAL auctions only — INPROGRESS / TERMINATED stay frozen.
+      * Name, team, and Mantra roles are refreshed across every surviving
+        snapshot row, regardless of auction status. Evaluation and the
+        economic columns (fanta_evaluation, fanta_market_value) are NOT
+        touched.
+    """
     with SessionLocal() as session:
         with session.begin():
             session.execute(text("TRUNCATE TABLE players RESTART IDENTITY"))
             session.add_all(rows)
+            session.flush()
+
+            session.execute(
+                text(
+                    """
+                    DELETE FROM auction_players ap
+                    USING auction a
+                    WHERE ap.auction_id = a.id
+                      AND a.status = 'INITIAL'
+                      AND ap.player_id NOT IN (SELECT id FROM players)
+                    """
+                )
+            )
+            session.execute(
+                text(
+                    """
+                    UPDATE auction_players ap
+                    SET name = p.name,
+                        team = p.team,
+                        mantra_roles = p.mantra_roles
+                    FROM players p
+                    WHERE ap.player_id = p.id
+                    """
+                )
+            )
     return len(rows)
 
 
