@@ -1,9 +1,10 @@
 import csv
 import io
+import secrets
 from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +27,10 @@ Status = Literal["under", "ok", "over"]
 
 # Mantra role marker for goalkeepers.
 GK_ROLE = "Por"
+
+# A full evaluations CSV is a few tens of KB. Cap upload at 5 MB so a
+# rogue multipart body cannot fill the spooled temp file.
+MAX_CSV_BYTES = 5 * 1024 * 1024
 
 
 class AuctionCreate(BaseModel):
@@ -356,7 +361,7 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                 if blockers:
                     raise HTTPException(
                         status_code=409,
-                        detail="cannot terminate auction: " + "; ".join(blockers),
+                        detail="cannot terminate auction: " + " | ".join(blockers),
                     )
 
             for k, v in fields.items():
@@ -639,7 +644,12 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv")
 
-    contents = await file.read()
+    contents = await file.read(MAX_CSV_BYTES + 1)
+    if len(contents) > MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_CSV_BYTES // (1024 * 1024)} MB upload limit",
+        )
     try:
         text = contents.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -717,10 +727,14 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                 upserts.append({"player_id": pid, "evaluation": evaluation})
 
             if invalid_rows:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"message": "CSV has invalid rows", "errors": invalid_rows[:20]},
-                )
+                # Keep detail a plain string: the UI surfaces it via
+                # `data.detail ?? \`HTTP ${res.status}\`` and a dict
+                # would render as "[object Object]".
+                shown = invalid_rows[:20]
+                summary = "CSV has invalid rows: " + "; ".join(shown)
+                if len(invalid_rows) > len(shown):
+                    summary += f" (+{len(invalid_rows) - len(shown)} more)"
+                raise HTTPException(status_code=400, detail=summary)
 
             # Deduplicate within the file: keep the last occurrence per player.
             deduped: dict[int, dict] = {row["player_id"]: row for row in upserts}
@@ -835,12 +849,24 @@ class PurchaseCreate(BaseModel):
 
 
 class PurchasePatch(BaseModel):
-    """Partial update for a purchase: team_id and/or price."""
+    """Partial update for a purchase: team_id and/or price.
+
+    Keys may be omitted to leave the existing value untouched, but an
+    explicit ``null`` is rejected — the patch handler does arithmetic
+    on ``price`` and would otherwise raise a 500 TypeError.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    team_id: int | None = None
+    team_id: int | None = Field(default=None, ge=1)
     price: int | None = Field(default=None, ge=0)
+
+    @field_validator("team_id", "price")
+    @classmethod
+    def _reject_null(cls, v: int | None) -> int | None:
+        if v is None:
+            raise ValueError("must not be null; omit the key to leave unchanged")
+        return v
 
 
 def _serialize_purchase(p: AuctionPurchase) -> dict:
@@ -899,7 +925,10 @@ def _compute_terminate_blockers(session, auction: Auction) -> list[str]:
                 f"{int(gks)}/{auction.number_of_goalkeepers} goalkeepers"
             )
         if missing:
-            blockers.append(f"{team_name} has " + ", ".join(missing))
+            # team_name is user-controlled (could contain `;` `,` `|`),
+            # so quote it with repr to keep the joined detail string
+            # parseable by a human reader.
+            blockers.append(f"{team_name!r} has " + ", ".join(missing))
     return blockers
 
 
@@ -958,24 +987,27 @@ def random_unsold_player(auction_id: int) -> dict:
     """Pick one random player from the auction pool not yet sold."""
     with SessionLocal() as session:
         auction = _require_running_auction(session, auction_id)
-        row = session.execute(
-            select(AuctionPlayer)
+        unsold = select(AuctionPlayer).where(
+            AuctionPlayer.auction_id == auction.id,
+            ~select(AuctionPurchase.player_id)
             .where(
-                AuctionPlayer.auction_id == auction.id,
-                ~select(AuctionPurchase.player_id)
-                .where(
-                    AuctionPurchase.auction_id == auction.id,
-                    AuctionPurchase.player_id == AuctionPlayer.player_id,
-                )
-                .exists(),
+                AuctionPurchase.auction_id == auction.id,
+                AuctionPurchase.player_id == AuctionPlayer.player_id,
             )
-            .order_by(func.random())
-            .limit(1)
-        ).scalar_one_or_none()
-        if row is None:
+            .exists(),
+        )
+        # Count + OFFSET avoids ORDER BY random() sorting the full pool
+        # on every call. Two cheap queries (indexed count + skip) beat
+        # one O(N log N) per draw.
+        total = session.execute(
+            select(func.count()).select_from(unsold.subquery())
+        ).scalar_one()
+        if not total:
             raise HTTPException(
                 status_code=404, detail="no unsold players left in this auction"
             )
+        offset = secrets.randbelow(total)
+        row = session.execute(unsold.offset(offset).limit(1)).scalar_one()
         return {
             "id": row.player_id,
             "name": row.name,
@@ -1046,7 +1078,16 @@ def create_purchase(auction_id: int, body: PurchaseCreate) -> dict:
                 price=body.price,
             )
             session.add(purchase)
-            session.flush()
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                # PK collision: another request inserted the same
+                # (auction_id, player_id) between our existence check
+                # and the flush. Surface as 409 instead of 500.
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"player {body.player_id} already sold in auction {auction_id}",
+                ) from exc
             return _serialize_purchase(purchase)
 
 
@@ -1070,6 +1111,7 @@ def patch_purchase(auction_id: int, player_id: int, patch: PurchasePatch) -> dic
             new_team_id = fields.get("team_id", purchase.team_id)
             new_price = fields.get("price", purchase.price)
 
+            team: AuctionTeam | None = None
             if new_team_id != purchase.team_id:
                 team = session.get(AuctionTeam, new_team_id)
                 if team is None or team.auction_id != auction_id:
@@ -1077,17 +1119,24 @@ def patch_purchase(auction_id: int, player_id: int, patch: PurchasePatch) -> dic
                         status_code=404,
                         detail=f"team {new_team_id} not found in auction {auction_id}",
                     )
-            else:
-                team = session.get(AuctionTeam, new_team_id)
 
             count, spent = _team_totals(
                 session, auction_id, new_team_id, exclude_player_id=player_id
             )
+
+            def _team_label() -> str:
+                # Lazy: same-team PATCH (the common price-edit case) avoids
+                # a second SELECT unless we actually hit a validation error.
+                nonlocal team
+                if team is None:
+                    team = session.get(AuctionTeam, new_team_id)
+                return repr(team.team_name) if team is not None else f"id {new_team_id}"
+
             if count + 1 > auction.max_team_size:
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"team {team.team_name!r} is full "
+                        f"team {_team_label()} is full "
                         f"({count + 1}/{auction.max_team_size})"
                     ),
                 )
@@ -1095,7 +1144,7 @@ def patch_purchase(auction_id: int, player_id: int, patch: PurchasePatch) -> dic
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"team {team.team_name!r} would exceed credits_per_team: "
+                        f"team {_team_label()} would exceed credits_per_team: "
                         f"{spent} spent + {new_price} > {auction.credits_per_team}"
                     ),
                 )

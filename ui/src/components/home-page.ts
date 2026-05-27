@@ -118,6 +118,11 @@ export class HomePage extends LitElement {
       const res = await fetch(`${BACKEND_URL}/auctions/${id}`);
       if (!res.ok) return;
       const detail = (await res.json()) as Auction;
+      // Re-check after the await: a concurrent loadAuctions/delete may
+      // have replaced or removed the entry while we were fetching.
+      // Skipping in those cases avoids clobbering fresher state.
+      const cur = this.auctions.find((a) => a.id === id);
+      if (!cur || cur.teams) return;
       this.auctions = this.auctions.map((a) => (a.id === id ? detail : a));
     } catch {
       // best-effort

@@ -3,74 +3,21 @@ import { customElement, property, state } from "lit/decorators.js";
 import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
+import {
+  BACKEND_URL,
+  GK_ROLE,
+  renderRoleChips,
+  toAuctionCredits,
+  type Auction,
+  type AuctionStatus,
+  type PlayerRow,
+  type Purchase,
+} from "../auction-shared";
 import "./auction-evaluations";
 import "./auction-running";
 import "./auction-finished";
 import "./auction-dialog";
 import "./evaluations-view-dialog";
-
-const BACKEND_URL = "http://localhost:8000";
-const BASE_CREDITS = 1000;
-
-function toAuctionCredits(stored: number | null, credits: number): number | null {
-  if (stored == null) return null;
-  return Math.floor((stored * credits) / BASE_CREDITS);
-}
-
-const ROLE_COLORS: Record<string, string> = {
-  Por: "hsl(40, 94%, 52%)",
-  Dc: "hsl(96, 70%, 46%)",
-  Dd: "hsl(96, 70%, 46%)",
-  Ds: "hsl(96, 70%, 46%)",
-  B: "hsl(96, 70%, 46%)",
-  E: "hsl(217, 93%, 52%)",
-  M: "hsl(217, 93%, 52%)",
-  C: "hsl(217, 93%, 52%)",
-  W: "hsl(273, 100%, 61%)",
-  T: "hsl(273, 100%, 61%)",
-  A: "hsl(351, 89%, 53%)",
-  Pc: "hsl(351, 89%, 53%)",
-};
-
-type AuctionStatus = "INITIAL" | "IN_PROGRESS" | "TERMINATED";
-
-interface Team {
-  id: number;
-  team_name: string;
-}
-
-interface Auction {
-  id: number;
-  name: string;
-  description: string | null;
-  status: AuctionStatus;
-  type?: "CALL" | "RANDOM";
-  number_of_auctioners: number;
-  min_team_size: number;
-  max_team_size: number;
-  credits_per_team: number;
-  number_of_goalkeepers: number;
-  number_of_teams: number;
-  created_at: string | null;
-  teams?: Team[];
-}
-
-interface PlayerRow {
-  id: number;
-  name: string;
-  team: string;
-  mantra_roles: string[];
-  fanta_evaluation: number | null;
-  fanta_market_value: number | null;
-  evaluation: number | null;
-}
-
-interface Purchase {
-  auction_id: number;
-  player_id: number;
-  team_id: number;
-  price: number;
-}
 
 function statusLabel(s: AuctionStatus): string {
   switch (s) {
@@ -127,6 +74,11 @@ export class AuctionPage extends LitElement {
   @state() private buyBusy = false;
   @state() private buyError = "";
 
+  // Derived state, recomputed in willUpdate so each render reads cached
+  // arrays instead of re-scanning purchases/players for every getter call.
+  @state() private terminateBlockers: string[] = [];
+  @state() private searchResults: PlayerRow[] = [];
+
   protected override createRenderRoot(): HTMLElement {
     return this;
   }
@@ -142,6 +94,23 @@ export class AuctionPage extends LitElement {
       if (prev !== this.auctionId) {
         void this.load();
       }
+    }
+  }
+
+  override willUpdate(changed: Map<string, unknown>): void {
+    if (
+      changed.has("auction") ||
+      changed.has("players") ||
+      changed.has("purchases")
+    ) {
+      this.terminateBlockers = this.computeTerminateBlockers();
+    }
+    if (
+      changed.has("searchQuery") ||
+      changed.has("players") ||
+      changed.has("purchases")
+    ) {
+      this.searchResults = this.computeSearchResults();
     }
   }
 
@@ -163,6 +132,10 @@ export class AuctionPage extends LitElement {
       } else {
         this.players = [];
         this.purchases = [];
+        // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
+        // call/buy selection so the UI doesn't render a buy form against
+        // stale state.
+        this.clearSelection();
       }
     } catch (err) {
       this.loadError = err instanceof Error ? err.message : String(err);
@@ -195,7 +168,7 @@ export class AuctionPage extends LitElement {
     void this.loadPurchases();
   };
 
-  private get terminateBlockers(): string[] {
+  private computeTerminateBlockers(): string[] {
     const a = this.auction;
     if (!a || a.status !== "IN_PROGRESS") return [];
     const playerById = new Map(this.players.map((p) => [p.id, p]));
@@ -208,7 +181,7 @@ export class AuctionPage extends LitElement {
         if (p.team_id !== t.id) continue;
         total += 1;
         const pl = playerById.get(p.player_id);
-        if (pl && pl.mantra_roles.includes("Por")) gks += 1;
+        if (pl && pl.mantra_roles.includes(GK_ROLE)) gks += 1;
       }
       const parts: string[] = [];
       if (total < a.min_team_size) {
@@ -261,14 +234,10 @@ export class AuctionPage extends LitElement {
 
   // ----- call / buy flow -----
 
-  private get soldIds(): Set<number> {
-    return new Set(this.purchases.map((p) => p.player_id));
-  }
-
-  private get searchResults(): PlayerRow[] {
+  private computeSearchResults(): PlayerRow[] {
     const q = this.searchQuery.trim().toLowerCase();
     if (!q) return [];
-    const sold = this.soldIds;
+    const sold = new Set(this.purchases.map((p) => p.player_id));
     return this.players
       .filter((p) => !sold.has(p.id) && p.name.toLowerCase().includes(q))
       .slice(0, 12);
@@ -311,12 +280,12 @@ export class AuctionPage extends LitElement {
 
   private async confirmBuy(): Promise<void> {
     if (!this.selected) return;
-    const teamId = typeof this.buyTeamId === "number" ? this.buyTeamId : 0;
-    const price = Number.parseInt(this.buyPrice, 10);
-    if (!teamId) {
+    if (this.buyTeamId === "") {
       this.buyError = msg("Pick a team");
       return;
     }
+    const teamId = this.buyTeamId;
+    const price = Number.parseInt(this.buyPrice, 10);
     if (!Number.isFinite(price) || price < 0) {
       this.buyError = msg("Price must be >= 0");
       return;
@@ -445,21 +414,6 @@ export class AuctionPage extends LitElement {
     `;
   }
 
-  private renderRoleChips(roles: string[]) {
-    return html`
-      <span class="inline-flex items-center gap-1 align-middle">
-        ${roles.map(
-          (r) => html`
-            <span
-              class="inline-block text-[10px] font-bold tracking-wide px-1.5 py-px rounded text-black min-w-[22px] text-center"
-              style=${`background: ${ROLE_COLORS[r] ?? "#888"};`}
-            >${r}</span>
-          `,
-        )}
-      </span>
-    `;
-  }
-
   private renderTopSearch() {
     const results = this.searchResults;
     return html`
@@ -497,7 +451,7 @@ export class AuctionPage extends LitElement {
                           ${p.name}
                         </span>
                         <span class="text-[12px] text-fg-dim">${p.team}</span>
-                        ${this.renderRoleChips(p.mantra_roles)}
+                        ${renderRoleChips(p.mantra_roles)}
                       </button>
                     `,
                   )}
@@ -542,7 +496,7 @@ export class AuctionPage extends LitElement {
               <h3 class="text-[16px] font-bold m-0 leading-tight">
                 ${p.name}
               </h3>
-              ${this.renderRoleChips(p.mantra_roles)}
+              ${renderRoleChips(p.mantra_roles)}
               <span
                 class="inline-block text-[10px] font-bold tracking-wide px-1.5 py-px rounded bg-accent/15 text-accent tabular-nums align-middle"
               >${msg(str`Eval ${scaledEval ?? "—"}`)}</span>

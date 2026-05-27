@@ -3,72 +3,24 @@ import { customElement, property, state } from "lit/decorators.js";
 import { localized, msg, str } from "@lit/localize";
 
 import { icon } from "../icons";
+import {
+  BACKEND_URL,
+  GK_ROLE,
+  renderRoleChips,
+  roleSortKey,
+  ROLE_ORDER,
+  type Auction,
+  type PlayerRow,
+  type Purchase,
+  type Team,
+} from "../auction-shared";
 
-const BACKEND_URL = "http://localhost:8000";
-
-// Canonical role display order (Por first, then defenders, midfielders, attackers).
-const ROLE_ORDER = [
-  "Por", "Dd", "Dc", "Ds", "B", "E", "M", "C", "W", "T", "A", "Pc",
-];
-
-const ROLE_COLORS: Record<string, string> = {
-  Por: "hsl(40, 94%, 52%)",
-  Dc: "hsl(96, 70%, 46%)",
-  Dd: "hsl(96, 70%, 46%)",
-  Ds: "hsl(96, 70%, 46%)",
-  B: "hsl(96, 70%, 46%)",
-  E: "hsl(217, 93%, 52%)",
-  M: "hsl(217, 93%, 52%)",
-  C: "hsl(217, 93%, 52%)",
-  W: "hsl(273, 100%, 61%)",
-  T: "hsl(273, 100%, 61%)",
-  A: "hsl(351, 89%, 53%)",
-  Pc: "hsl(351, 89%, 53%)",
-};
-
-function roleSortKey(roles: string[]): number {
-  let min = ROLE_ORDER.length;
-  for (const r of roles) {
-    const i = ROLE_ORDER.indexOf(r);
-    if (i >= 0 && i < min) min = i;
-  }
-  return min;
-}
-
-interface Team {
-  id: number;
-  team_name: string;
-}
-
-interface Auction {
-  id: number;
-  name: string;
-  status: "INITIAL" | "IN_PROGRESS" | "TERMINATED";
-  type: "CALL" | "RANDOM";
-  number_of_auctioners: number;
-  min_team_size: number;
-  max_team_size: number;
-  credits_per_team: number;
-  number_of_goalkeepers: number;
-  number_of_teams: number;
-  teams?: Team[];
-}
-
-interface PlayerRow {
-  id: number;
-  name: string;
-  team: string;
-  mantra_roles: string[];
-  fanta_evaluation: number | null;
-  fanta_market_value: number | null;
-  evaluation: number | null;
-}
-
-interface Purchase {
-  auction_id: number;
-  player_id: number;
-  team_id: number;
-  price: number;
+interface TeamAggregate {
+  team: Team;
+  spent: number;
+  count: number;
+  gks: number;
+  rows: { purchase: Purchase; player: PlayerRow | undefined }[];
 }
 
 @customElement("auction-running")
@@ -83,36 +35,55 @@ export class AuctionRunning extends LitElement {
   @state() private editPrice = "";
   @state() private editError = "";
 
+  // Derived once per (auction|players|purchases) change so the render
+  // path doesn't rebuild the player Map per team and re-sort per render.
+  @state() private teamAggregates: TeamAggregate[] = [];
+
   protected override createRenderRoot(): HTMLElement {
     return this;
+  }
+
+  override willUpdate(changed: Map<string, unknown>): void {
+    if (
+      changed.has("auction") ||
+      changed.has("players") ||
+      changed.has("purchases")
+    ) {
+      this.teamAggregates = this.computeTeamAggregates();
+    }
+  }
+
+  private computeTeamAggregates(): TeamAggregate[] {
+    const teams = this.auction?.teams ?? [];
+    const playerById = new Map(this.players.map((p) => [p.id, p]));
+    const byTeam = new Map<number, TeamAggregate>();
+    for (const t of teams) {
+      byTeam.set(t.id, { team: t, spent: 0, count: 0, gks: 0, rows: [] });
+    }
+    for (const purchase of this.purchases) {
+      const agg = byTeam.get(purchase.team_id);
+      if (!agg) continue;
+      const player = playerById.get(purchase.player_id);
+      agg.spent += purchase.price;
+      agg.count += 1;
+      if (player && player.mantra_roles.includes(GK_ROLE)) agg.gks += 1;
+      agg.rows.push({ purchase, player });
+    }
+    for (const agg of byTeam.values()) {
+      agg.rows.sort((a, b) => {
+        const ar = a.player ? roleSortKey(a.player.mantra_roles) : ROLE_ORDER.length;
+        const br = b.player ? roleSortKey(b.player.mantra_roles) : ROLE_ORDER.length;
+        if (ar !== br) return ar - br;
+        return (a.player?.name ?? "").localeCompare(b.player?.name ?? "");
+      });
+    }
+    return teams.map((t) => byTeam.get(t.id)!);
   }
 
   private notifyPurchasesChanged(): void {
     this.dispatchEvent(
       new CustomEvent("purchases-changed", { bubbles: true, composed: true }),
     );
-  }
-
-  private get playerById(): Map<number, PlayerRow> {
-    return new Map(this.players.map((p) => [p.id, p]));
-  }
-
-  private spentByTeam(teamId: number): number {
-    return this.purchases
-      .filter((p) => p.team_id === teamId)
-      .reduce((s, p) => s + p.price, 0);
-  }
-
-  private countByTeam(teamId: number): number {
-    return this.purchases.filter((p) => p.team_id === teamId).length;
-  }
-
-  private gkByTeam(teamId: number): number {
-    return this.purchases.filter((p) => {
-      if (p.team_id !== teamId) return false;
-      const pl = this.playerById.get(p.player_id);
-      return !!pl && pl.mantra_roles.includes("Por");
-    }).length;
   }
 
   private startEdit(p: Purchase): void {
@@ -131,12 +102,12 @@ export class AuctionRunning extends LitElement {
 
   private async saveEdit(): Promise<void> {
     if (this.editingPlayerId == null) return;
-    const teamId = typeof this.editTeamId === "number" ? this.editTeamId : 0;
-    const price = Number.parseInt(this.editPrice, 10);
-    if (!teamId) {
+    if (this.editTeamId === "") {
       this.editError = msg("Pick a team");
       return;
     }
+    const teamId = this.editTeamId;
+    const price = Number.parseInt(this.editPrice, 10);
     if (!Number.isFinite(price) || price < 0) {
       this.editError = msg("Price must be >= 0");
       return;
@@ -162,8 +133,8 @@ export class AuctionRunning extends LitElement {
   }
 
   private async deletePurchase(p: Purchase): Promise<void> {
-    const pl = this.playerById.get(p.player_id);
-    const playerName = pl?.name ?? `#${p.player_id}`;
+    const player = this.players.find((pl) => pl.id === p.player_id);
+    const playerName = player?.name ?? `#${p.player_id}`;
     if (
       !confirm(msg(str`Release ${playerName} back to the unsold pool?`))
     ) {
@@ -184,39 +155,11 @@ export class AuctionRunning extends LitElement {
     }
   }
 
-  private renderRoleChips(roles: string[]) {
-    return html`
-      <span>
-        ${roles.map(
-          (r) => html`
-            <span
-              class="inline-block text-[10px] font-bold tracking-wide px-1.5 py-px rounded mr-1 text-black min-w-[22px] text-center align-middle"
-              style=${`background: ${ROLE_COLORS[r] ?? "#888"};`}
-            >${r}</span>
-          `,
-        )}
-      </span>
-    `;
-  }
-
-  private renderTeamColumn(t: Team) {
-    const teams = this.auction.teams ?? [];
-    const spent = this.spentByTeam(t.id);
-    const left = this.auction.credits_per_team - spent;
-    const count = this.countByTeam(t.id);
-    const gks = this.gkByTeam(t.id);
-    const minOk = count >= this.auction.min_team_size;
-    const gkOk = gks >= this.auction.number_of_goalkeepers;
-
-    const teamPurchases = this.purchases
-      .filter((p) => p.team_id === t.id)
-      .map((p) => ({ purchase: p, player: this.playerById.get(p.player_id) }))
-      .sort((a, b) => {
-        const ar = a.player ? roleSortKey(a.player.mantra_roles) : ROLE_ORDER.length;
-        const br = b.player ? roleSortKey(b.player.mantra_roles) : ROLE_ORDER.length;
-        if (ar !== br) return ar - br;
-        return (a.player?.name ?? "").localeCompare(b.player?.name ?? "");
-      });
+  private renderTeamColumn(agg: TeamAggregate, teams: Team[]) {
+    const t = agg.team;
+    const left = this.auction.credits_per_team - agg.spent;
+    const minOk = agg.count >= this.auction.min_team_size;
+    const gkOk = agg.gks >= this.auction.number_of_goalkeepers;
 
     return html`
       <div
@@ -232,22 +175,22 @@ export class AuctionRunning extends LitElement {
           </div>
           <div class="flex gap-2 text-[10px] uppercase tracking-wider">
             <span class=${minOk ? "text-accent" : "text-fg-muted"}>
-              ${msg(str`P ${count}/${this.auction.min_team_size}`)}
+              ${msg(str`P ${agg.count}/${this.auction.min_team_size}`)}
             </span>
             <span class=${gkOk ? "text-accent" : "text-fg-muted"}>
-              ${msg(str`GK ${gks}/${this.auction.number_of_goalkeepers}`)}
+              ${msg(str`GK ${agg.gks}/${this.auction.number_of_goalkeepers}`)}
             </span>
             <span class="text-fg-muted ml-auto">
-              ${msg(str`spent ${spent}`)}
+              ${msg(str`spent ${agg.spent}`)}
             </span>
           </div>
         </div>
         <div class="flex flex-col">
-          ${teamPurchases.length === 0
+          ${agg.rows.length === 0
             ? html`<div class="px-3 py-3 text-[12px] text-fg-muted italic">
                 ${msg("No players yet")}
               </div>`
-            : teamPurchases.map(({ purchase, player }) =>
+            : agg.rows.map(({ purchase, player }) =>
                 this.renderPurchaseRow(purchase, player, teams),
               )}
         </div>
@@ -312,7 +255,7 @@ export class AuctionRunning extends LitElement {
             ${player?.name ?? `#${purchase.player_id}`}
           </div>
           <div class="text-[10px] text-fg-muted">
-            ${player ? this.renderRoleChips(player.mantra_roles) : nothing}
+            ${player ? renderRoleChips(player.mantra_roles) : nothing}
           </div>
         </div>
         <div class="text-[12px] tabular-nums font-semibold">${purchase.price}</div>
@@ -342,7 +285,7 @@ export class AuctionRunning extends LitElement {
       <section>
         <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Teams")}</h2>
         <div class="flex gap-3 overflow-x-auto pb-2">
-          ${teams.map((t) => this.renderTeamColumn(t))}
+          ${this.teamAggregates.map((agg) => this.renderTeamColumn(agg, teams))}
         </div>
       </section>
     `;
