@@ -457,7 +457,7 @@ def patch_evaluation(auction_id: int, player_id: int, patch: EvaluationPatch) ->
             )
             stmt = stmt.on_conflict_do_update(
                 index_elements=[AuctionPlayer.auction_id, AuctionPlayer.player_id],
-                set_=fields,
+                set_={**fields, "updated_at": func.now()},
             )
             session.execute(stmt)
 
@@ -721,7 +721,10 @@ async def import_evaluations(auction_id: int, file: UploadFile = File(...)) -> d
                         AuctionPlayer.auction_id,
                         AuctionPlayer.player_id,
                     ],
-                    set_={"evaluation": stmt.excluded.evaluation},
+                    set_={
+                        "evaluation": stmt.excluded.evaluation,
+                        "updated_at": func.now(),
+                    },
                 )
                 session.execute(stmt)
 

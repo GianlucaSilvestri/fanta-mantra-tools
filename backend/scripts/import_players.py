@@ -126,9 +126,13 @@ def write_players(rows: list[Player]) -> int:
                     UPDATE auction_players ap
                     SET name = p.name,
                         team = p.team,
-                        mantra_roles = p.mantra_roles
+                        mantra_roles = p.mantra_roles,
+                        updated_at = now()
                     FROM players p
                     WHERE ap.player_id = p.id
+                      AND (ap.name <> p.name
+                           OR ap.team <> p.team
+                           OR ap.mantra_roles <> p.mantra_roles)
                     """
                 )
             )
