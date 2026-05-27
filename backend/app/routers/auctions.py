@@ -14,6 +14,7 @@ from backend.app.models import (
     AuctionPlayer,
     AuctionStatus,
     AuctionTeam,
+    AuctionType,
     Player,
 )
 from backend.app.services.autofill_evaluations import compute_autofill_evaluations
@@ -31,6 +32,7 @@ class AuctionCreate(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
+    type: AuctionType = Field(default=AuctionType.CALL)
     number_of_auctioners: int = Field(ge=1)
     min_team_size: int = Field(ge=1)
     max_team_size: int = Field(ge=1)
@@ -47,6 +49,7 @@ class AuctionPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     description: str | None = None
     status: AuctionStatus | None = None
+    type: AuctionType | None = None
     number_of_auctioners: int | None = Field(default=None, ge=1)
     min_team_size: int | None = Field(default=None, ge=1)
     max_team_size: int | None = Field(default=None, ge=1)
@@ -72,6 +75,7 @@ class EvaluationPatch(BaseModel):
 LOCKED_FIELDS_OUTSIDE_INITIAL = {
     "name",
     "description",
+    "type",
     "number_of_auctioners",
     "min_team_size",
     "max_team_size",
@@ -112,6 +116,7 @@ def _serialize_auction(a: Auction, team_count: int, teams: list[AuctionTeam] | N
         "name": a.name,
         "description": a.description,
         "status": a.status.value,
+        "type": a.type.value,
         "number_of_auctioners": a.number_of_auctioners,
         "min_team_size": a.min_team_size,
         "max_team_size": a.max_team_size,
@@ -155,6 +160,7 @@ def create_auction(body: AuctionCreate) -> dict:
             auction = Auction(
                 name=body.name,
                 description=body.description,
+                type=body.type,
                 number_of_auctioners=body.number_of_auctioners,
                 min_team_size=body.min_team_size,
                 max_team_size=body.max_team_size,

@@ -52,6 +52,19 @@ auction_status_enum = ENUM(
 )
 
 
+class AuctionType(str, enum.Enum):
+    CALL = "CALL"
+    RANDOM = "RANDOM"
+
+
+auction_type_enum = ENUM(
+    AuctionType,
+    name="auction_type",
+    values_callable=lambda e: [t.value for t in e],
+    create_type=False,
+)
+
+
 class Player(Base):
     __tablename__ = "players"
 
@@ -82,6 +95,9 @@ class Auction(Base):
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[AuctionStatus] = mapped_column(
         auction_status_enum, nullable=False, server_default=AuctionStatus.INITIAL.value
+    )
+    type: Mapped[AuctionType] = mapped_column(
+        auction_type_enum, nullable=False, server_default=AuctionType.CALL.value
     )
     number_of_auctioners: Mapped[int] = mapped_column(Integer, nullable=False)
     min_team_size: Mapped[int] = mapped_column(Integer, nullable=False)

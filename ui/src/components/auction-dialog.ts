@@ -8,6 +8,7 @@ const BACKEND_URL = "http://localhost:8000";
 
 type DialogMode = "create" | "edit";
 type AuctionStatus = "INITIAL" | "IN_PROGRESS" | "TERMINATED";
+type AuctionType = "CALL" | "RANDOM";
 
 interface Team {
   id: number;
@@ -19,6 +20,7 @@ interface Auction {
   name: string;
   description: string | null;
   status: AuctionStatus;
+  type: AuctionType;
   number_of_auctioners: number;
   min_team_size: number;
   max_team_size: number;
@@ -31,6 +33,7 @@ interface Auction {
 interface FormState {
   name: string;
   description: string;
+  type: AuctionType;
   number_of_auctioners: number;
   credits_per_team: number;
   min_team_size: number;
@@ -52,6 +55,7 @@ function statusLabel(s: AuctionStatus): string {
 const DEFAULT_FORM: FormState = {
   name: "",
   description: "",
+  type: "CALL",
   number_of_auctioners: 10,
   credits_per_team: 500,
   min_team_size: 27,
@@ -108,6 +112,7 @@ export class AuctionDialog extends LitElement {
       this.form = {
         name: a.name,
         description: a.description ?? "",
+        type: a.type,
         number_of_auctioners: a.number_of_auctioners,
         credits_per_team: a.credits_per_team,
         min_team_size: a.min_team_size,
@@ -240,6 +245,7 @@ export class AuctionDialog extends LitElement {
         const body = {
           name: this.form.name.trim(),
           description: this.form.description.trim() || null,
+          type: this.form.type,
           number_of_auctioners: this.form.number_of_auctioners,
           min_team_size: this.form.min_team_size,
           max_team_size: this.form.max_team_size,
@@ -262,6 +268,7 @@ export class AuctionDialog extends LitElement {
         const body = {
           name: this.form.name.trim(),
           description: this.form.description.trim() || null,
+          type: this.form.type,
           number_of_auctioners: this.form.number_of_auctioners,
           min_team_size: this.form.min_team_size,
           max_team_size: this.form.max_team_size,
@@ -580,20 +587,38 @@ export class AuctionDialog extends LitElement {
               </div>
             </div>
 
-            <div class="mb-3.5">
-              <label class=${labelCls + " block mb-1.5"}>${msg("Auctioners")}</label>
-              <input
-                type="number"
-                min="1"
-                required
-                .value=${String(this.form.number_of_auctioners)}
-                ?disabled=${locked}
-                @input=${(e: Event) => {
-                  const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
-                  if (Number.isFinite(n)) this.setForm("number_of_auctioners", n);
-                }}
-                class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
-              />
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Auction type")}</label>
+                <select
+                  ?disabled=${locked}
+                  .value=${this.form.type}
+                  @change=${(e: Event) =>
+                    this.setForm(
+                      "type",
+                      (e.target as HTMLSelectElement).value as AuctionType,
+                    )}
+                  class=${inputCls + " disabled:opacity-40 disabled:cursor-not-allowed"}
+                >
+                  <option value="CALL">${msg("Call")}</option>
+                  <option value="RANDOM">${msg("Random")}</option>
+                </select>
+              </div>
+              <div>
+                <label class=${labelCls + " block mb-1.5"}>${msg("Auctioners")}</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  .value=${String(this.form.number_of_auctioners)}
+                  ?disabled=${locked}
+                  @input=${(e: Event) => {
+                    const n = Number.parseInt((e.target as HTMLInputElement).value, 10);
+                    if (Number.isFinite(n)) this.setForm("number_of_auctioners", n);
+                  }}
+                  class=${inputCls + " tabular-nums disabled:opacity-40 disabled:cursor-not-allowed"}
+                />
+              </div>
             </div>
 
             ${locked
