@@ -179,3 +179,40 @@ class AuctionPlayer(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class AuctionPurchase(Base):
+    __tablename__ = "auction_purchases"
+
+    # One row per (auction, player). PK on (auction_id, player_id)
+    # enforces one-team-per-player at the DB layer; team_id moves on
+    # re-assignment. player_id is intentionally NOT a foreign key to
+    # players.id (same rationale as AuctionPlayer).
+    auction_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("auction.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    player_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=False
+    )
+    team_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("auction_teams.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    price: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint("price >= 0", name="auction_purchases_price_nonneg"),
+    )

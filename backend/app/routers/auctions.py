@@ -12,6 +12,7 @@ from backend.app.db import SessionLocal
 from backend.app.models import (
     Auction,
     AuctionPlayer,
+    AuctionPurchase,
     AuctionStatus,
     AuctionTeam,
     AuctionType,
@@ -343,6 +344,20 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ],
                     )
                 )
+
+            # Gate IN_PROGRESS → TERMINATED on every team meeting the
+            # roster minimums (min_team_size players, of which at least
+            # number_of_goalkeepers are goalkeepers).
+            if (
+                new_status == AuctionStatus.TERMINATED
+                and auction.status == AuctionStatus.IN_PROGRESS
+            ):
+                blockers = _compute_terminate_blockers(session, auction)
+                if blockers:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="cannot terminate auction: " + "; ".join(blockers),
+                    )
 
             for k, v in fields.items():
                 setattr(auction, k, v)
@@ -804,3 +819,303 @@ def autofill_evaluations(auction_id: int) -> dict:
                 )
 
     return {"autofilled": len(values)}
+
+
+# ---------------------------------------------------------------------
+# Purchases — live-auction sales
+# ---------------------------------------------------------------------
+
+
+class PurchaseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    player_id: int
+    team_id: int
+    price: int = Field(ge=0)
+
+
+class PurchasePatch(BaseModel):
+    """Partial update for a purchase: team_id and/or price."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    team_id: int | None = None
+    price: int | None = Field(default=None, ge=0)
+
+
+def _serialize_purchase(p: AuctionPurchase) -> dict:
+    return {
+        "auction_id": p.auction_id,
+        "player_id": p.player_id,
+        "team_id": p.team_id,
+        "price": p.price,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _compute_terminate_blockers(session, auction: Auction) -> list[str]:
+    """Return a list of human-readable reasons why the auction can't yet
+    be terminated. Empty list means it can.
+
+    A team is "complete" when it has at least `min_team_size` purchases
+    AND at least `number_of_goalkeepers` purchases of goalkeeper-role
+    players (a goalkeeper = any player with 'Por' in mantra_roles).
+    """
+    rows = session.execute(
+        select(
+            AuctionTeam.id,
+            AuctionTeam.team_name,
+            func.count(AuctionPurchase.player_id).label("total"),
+            func.count(AuctionPurchase.player_id)
+            .filter(AuctionPlayer.mantra_roles.any(GK_ROLE))
+            .label("gks"),
+        )
+        .select_from(AuctionTeam)
+        .outerjoin(
+            AuctionPurchase,
+            (AuctionPurchase.team_id == AuctionTeam.id)
+            & (AuctionPurchase.auction_id == auction.id),
+        )
+        .outerjoin(
+            AuctionPlayer,
+            (AuctionPlayer.auction_id == AuctionPurchase.auction_id)
+            & (AuctionPlayer.player_id == AuctionPurchase.player_id),
+        )
+        .where(AuctionTeam.auction_id == auction.id)
+        .group_by(AuctionTeam.id, AuctionTeam.team_name)
+        .order_by(AuctionTeam.id.asc())
+    ).all()
+
+    blockers: list[str] = []
+    for _team_id, team_name, total, gks in rows:
+        missing = []
+        if int(total) < auction.min_team_size:
+            missing.append(
+                f"{int(total)}/{auction.min_team_size} players"
+            )
+        if int(gks) < auction.number_of_goalkeepers:
+            missing.append(
+                f"{int(gks)}/{auction.number_of_goalkeepers} goalkeepers"
+            )
+        if missing:
+            blockers.append(f"{team_name} has " + ", ".join(missing))
+    return blockers
+
+
+def _team_totals(
+    session, auction_id: int, team_id: int, exclude_player_id: int | None = None
+) -> tuple[int, int]:
+    """Return (current_player_count, current_spent) for a team, optionally
+    excluding one player_id (used when PATCH-editing an existing row in
+    place — the row being edited shouldn't count against itself)."""
+    stmt = select(
+        func.count(AuctionPurchase.player_id),
+        func.coalesce(func.sum(AuctionPurchase.price), 0),
+    ).where(
+        AuctionPurchase.auction_id == auction_id,
+        AuctionPurchase.team_id == team_id,
+    )
+    if exclude_player_id is not None:
+        stmt = stmt.where(AuctionPurchase.player_id != exclude_player_id)
+    count, spent = session.execute(stmt).one()
+    return int(count), int(spent)
+
+
+def _require_running_auction(session, auction_id: int) -> Auction:
+    auction = session.get(Auction, auction_id)
+    if auction is None:
+        raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
+    if auction.status != AuctionStatus.IN_PROGRESS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"auction is {auction.status.value}; purchases can only be "
+                f"managed while IN_PROGRESS"
+            ),
+        )
+    return auction
+
+
+@router.get("/{auction_id}/purchases")
+def list_purchases(auction_id: int) -> list[dict]:
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
+        rows = list(
+            session.execute(
+                select(AuctionPurchase)
+                .where(AuctionPurchase.auction_id == auction_id)
+                .order_by(AuctionPurchase.created_at.asc())
+            ).scalars()
+        )
+        return [_serialize_purchase(p) for p in rows]
+
+
+@router.get("/{auction_id}/purchases/random-player")
+def random_unsold_player(auction_id: int) -> dict:
+    """Pick one random player from the auction pool not yet sold."""
+    with SessionLocal() as session:
+        auction = _require_running_auction(session, auction_id)
+        row = session.execute(
+            select(AuctionPlayer)
+            .where(
+                AuctionPlayer.auction_id == auction.id,
+                ~select(AuctionPurchase.player_id)
+                .where(
+                    AuctionPurchase.auction_id == auction.id,
+                    AuctionPurchase.player_id == AuctionPlayer.player_id,
+                )
+                .exists(),
+            )
+            .order_by(func.random())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail="no unsold players left in this auction"
+            )
+        return {
+            "id": row.player_id,
+            "name": row.name,
+            "team": row.team,
+            "mantra_roles": [r.value for r in row.mantra_roles],
+            "fanta_evaluation": row.fanta_evaluation,
+            "fanta_market_value": row.fanta_market_value,
+            "evaluation": row.evaluation,
+        }
+
+
+@router.post("/{auction_id}/purchases")
+def create_purchase(auction_id: int, body: PurchaseCreate) -> dict:
+    with SessionLocal() as session:
+        with session.begin():
+            auction = _require_running_auction(session, auction_id)
+
+            team = session.get(AuctionTeam, body.team_id)
+            if team is None or team.auction_id != auction_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"team {body.team_id} not found in auction {auction_id}",
+                )
+
+            in_pool = session.execute(
+                select(func.count())
+                .select_from(AuctionPlayer)
+                .where(
+                    AuctionPlayer.auction_id == auction_id,
+                    AuctionPlayer.player_id == body.player_id,
+                )
+            ).scalar_one()
+            if not in_pool:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"player {body.player_id} is not in auction {auction_id}",
+                )
+
+            existing = session.get(AuctionPurchase, (auction_id, body.player_id))
+            if existing is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"player {body.player_id} already sold to team {existing.team_id}",
+                )
+
+            count, spent = _team_totals(session, auction_id, body.team_id)
+            if count >= auction.max_team_size:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"team {team.team_name!r} is full "
+                        f"({count}/{auction.max_team_size})"
+                    ),
+                )
+            if spent + body.price > auction.credits_per_team:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"team {team.team_name!r} would exceed credits_per_team: "
+                        f"{spent} spent + {body.price} > {auction.credits_per_team}"
+                    ),
+                )
+
+            purchase = AuctionPurchase(
+                auction_id=auction_id,
+                player_id=body.player_id,
+                team_id=body.team_id,
+                price=body.price,
+            )
+            session.add(purchase)
+            session.flush()
+            return _serialize_purchase(purchase)
+
+
+@router.patch("/{auction_id}/purchases/{player_id}")
+def patch_purchase(auction_id: int, player_id: int, patch: PurchasePatch) -> dict:
+    fields = patch.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields provided")
+
+    with SessionLocal() as session:
+        with session.begin():
+            auction = _require_running_auction(session, auction_id)
+
+            purchase = session.get(AuctionPurchase, (auction_id, player_id))
+            if purchase is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"player {player_id} is not currently sold in auction {auction_id}",
+                )
+
+            new_team_id = fields.get("team_id", purchase.team_id)
+            new_price = fields.get("price", purchase.price)
+
+            if new_team_id != purchase.team_id:
+                team = session.get(AuctionTeam, new_team_id)
+                if team is None or team.auction_id != auction_id:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"team {new_team_id} not found in auction {auction_id}",
+                    )
+            else:
+                team = session.get(AuctionTeam, new_team_id)
+
+            count, spent = _team_totals(
+                session, auction_id, new_team_id, exclude_player_id=player_id
+            )
+            if count + 1 > auction.max_team_size:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"team {team.team_name!r} is full "
+                        f"({count + 1}/{auction.max_team_size})"
+                    ),
+                )
+            if spent + new_price > auction.credits_per_team:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"team {team.team_name!r} would exceed credits_per_team: "
+                        f"{spent} spent + {new_price} > {auction.credits_per_team}"
+                    ),
+                )
+
+            purchase.team_id = new_team_id
+            purchase.price = new_price
+            session.flush()
+            return _serialize_purchase(purchase)
+
+
+@router.delete("/{auction_id}/purchases/{player_id}")
+def delete_purchase(auction_id: int, player_id: int) -> dict:
+    with SessionLocal() as session:
+        with session.begin():
+            _require_running_auction(session, auction_id)
+            purchase = session.get(AuctionPurchase, (auction_id, player_id))
+            if purchase is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"player {player_id} is not currently sold in auction {auction_id}",
+                )
+            session.delete(purchase)
+    return {"deleted": player_id}
