@@ -216,3 +216,44 @@ class AuctionPurchase(Base):
     __table_args__ = (
         CheckConstraint("price >= 0", name="auction_purchases_price_nonneg"),
     )
+
+
+class RoleWeight(Base):
+    __tablename__ = "role_weights"
+
+    role: Mapped[MantraRole] = mapped_column(mantra_role_enum, primary_key=True)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("weight >= 0", name="role_weights_weight_nonneg"),
+    )
+
+
+class LineupModule(Base):
+    __tablename__ = "lineup_modules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+
+
+class LineupModuleSlot(Base):
+    __tablename__ = "lineup_module_slots"
+
+    module_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lineup_modules.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    position: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=False
+    )
+    allowed_roles: Mapped[list[MantraRole]] = mapped_column(
+        ARRAY(mantra_role_enum), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "position BETWEEN 1 AND 11",
+            name="lineup_module_slots_position_range",
+        ),
+    )

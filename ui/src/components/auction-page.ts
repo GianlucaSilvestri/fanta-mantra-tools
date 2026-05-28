@@ -10,6 +10,8 @@ import {
   toAuctionCredits,
   type Auction,
   type AuctionStatus,
+  type ModulePrediction,
+  type ModulePredictionsResponse,
   type PlayerRow,
   type Purchase,
 } from "../auction-shared";
@@ -61,6 +63,7 @@ export class AuctionPage extends LitElement {
   @state() private viewDialogOpen = false;
   @state() private players: PlayerRow[] = [];
   @state() private purchases: Purchase[] = [];
+  @state() private modulePredictions: Record<number, ModulePrediction[]> = {};
   @state() private terminating = false;
   @state() private terminateError = "";
 
@@ -128,10 +131,15 @@ export class AuctionPage extends LitElement {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.auction = (await res.json()) as Auction;
       if (this.auction.status === "IN_PROGRESS") {
-        await Promise.all([this.loadPlayers(), this.loadPurchases()]);
+        await Promise.all([
+          this.loadPlayers(),
+          this.loadPurchases(),
+          this.loadModulePredictions(),
+        ]);
       } else {
         this.players = [];
         this.purchases = [];
+        this.modulePredictions = {};
         // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
         // call/buy selection so the UI doesn't render a buy form against
         // stale state.
@@ -160,12 +168,23 @@ export class AuctionPage extends LitElement {
     this.purchases = (await res.json()) as Purchase[];
   }
 
+  private async loadModulePredictions(): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/module-predictions`,
+    );
+    if (!res.ok) throw new Error(`/module-predictions HTTP ${res.status}`);
+    const data = (await res.json()) as ModulePredictionsResponse;
+    const next: Record<number, ModulePrediction[]> = {};
+    for (const t of data.teams) next[t.team_id] = t.modules;
+    this.modulePredictions = next;
+  }
+
   private onAuctionStarted = (): void => {
     void this.load();
   };
 
   private onPurchasesChanged = (): void => {
-    void this.loadPurchases();
+    void Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
   };
 
   private computeTerminateBlockers(): string[] {
@@ -309,7 +328,7 @@ export class AuctionPage extends LitElement {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
-      await this.loadPurchases();
+      await Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
       this.clearSelection();
     } catch (err) {
       this.buyError = err instanceof Error ? err.message : String(err);
@@ -685,6 +704,7 @@ export class AuctionPage extends LitElement {
             .auction=${a}
             .players=${this.players}
             .purchases=${this.purchases}
+            .modulePredictions=${this.modulePredictions}
             @purchases-changed=${this.onPurchasesChanged}
           ></auction-running>
         `;

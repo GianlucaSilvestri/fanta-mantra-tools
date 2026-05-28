@@ -10,10 +10,13 @@ import {
   roleSortKey,
   ROLE_ORDER,
   type Auction,
+  type LineupModule,
+  type ModulePrediction,
   type PlayerRow,
   type Purchase,
   type Team,
 } from "../auction-shared";
+import "./module-pitch";
 
 interface TeamAggregate {
   team: Team;
@@ -29,6 +32,10 @@ export class AuctionRunning extends LitElement {
   @property({ attribute: false }) auction!: Auction;
   @property({ attribute: false }) players: PlayerRow[] = [];
   @property({ attribute: false }) purchases: Purchase[] = [];
+  @property({ attribute: false }) modulePredictions: Record<
+    number,
+    ModulePrediction[]
+  > = {};
 
   @state() private editingPlayerId: number | null = null;
   @state() private editTeamId: number | "" = "";
@@ -39,8 +46,27 @@ export class AuctionRunning extends LitElement {
   // path doesn't rebuild the player Map per team and re-sort per render.
   @state() private teamAggregates: TeamAggregate[] = [];
 
+  // Static reference data, fetched once on mount.
+  @state() private modules: LineupModule[] = [];
+
   protected override createRenderRoot(): HTMLElement {
     return this;
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    void this.loadModules();
+  }
+
+  private async loadModules(): Promise<void> {
+    try {
+      const res = await fetch(`${BACKEND_URL}/modules`);
+      if (!res.ok) throw new Error(`/modules HTTP ${res.status}`);
+      this.modules = (await res.json()) as LineupModule[];
+    } catch {
+      // Reference data — failing silently is fine; the row just stays empty.
+      this.modules = [];
+    }
   }
 
   override willUpdate(changed: Map<string, unknown>): void {
@@ -160,6 +186,7 @@ export class AuctionRunning extends LitElement {
     const left = this.auction.credits_per_team - agg.spent;
     const minOk = agg.count >= this.auction.min_team_size;
     const gkOk = agg.gks >= this.auction.number_of_goalkeepers;
+    const top3 = (this.modulePredictions[t.id] ?? []).slice(0, 3);
 
     return html`
       <div
@@ -185,6 +212,26 @@ export class AuctionRunning extends LitElement {
             </span>
           </div>
         </div>
+        ${top3.length > 0
+          ? html`<div class="px-3 py-2 border-b border-line flex flex-col gap-1">
+              ${top3.map(
+                (m) => html`
+                  <div class="flex items-center gap-2 text-[11px]">
+                    <span class="font-semibold text-fg w-9">${m.name}</span>
+                    <div class="flex-1 h-0.5 bg-line rounded-full overflow-hidden">
+                      <div
+                        class="h-full bg-accent rounded-full"
+                        style=${`width: ${m.confidence * 100}%`}
+                      ></div>
+                    </div>
+                    <span class="text-fg-muted tabular-nums w-9 text-right">
+                      ${Math.round(m.confidence * 100)}%
+                    </span>
+                  </div>
+                `,
+              )}
+            </div>`
+          : nothing}
         <div class="flex flex-col">
           ${agg.rows.length === 0
             ? html`<div class="px-3 py-3 text-[12px] text-fg-muted italic">
@@ -288,6 +335,18 @@ export class AuctionRunning extends LitElement {
           ${this.teamAggregates.map((agg) => this.renderTeamColumn(agg, teams))}
         </div>
       </section>
+      ${this.modules.length > 0
+        ? html`
+            <section class="mt-6">
+              <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Modules")}</h2>
+              <div class="flex gap-3 overflow-x-auto pb-2">
+                ${this.modules.map(
+                  (m) => html`<module-pitch .module=${m}></module-pitch>`,
+                )}
+              </div>
+            </section>
+          `
+        : nothing}
     `;
   }
 }

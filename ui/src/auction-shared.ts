@@ -52,6 +52,33 @@ export interface Purchase {
   price: number;
 }
 
+export interface ModulePrediction {
+  name: string;
+  confidence: number;
+}
+
+export interface TeamModulePredictions {
+  team_id: number;
+  team_name: string;
+  modules: ModulePrediction[];
+}
+
+export interface ModulePredictionsResponse {
+  auction_id: number;
+  teams: TeamModulePredictions[];
+}
+
+export interface LineupModuleSlot {
+  position: number;
+  allowed_roles: string[];
+}
+
+export interface LineupModule {
+  id: number;
+  name: string;
+  slots: LineupModuleSlot[];
+}
+
 // GK marker (matches backend GK_ROLE = "Por").
 export const GK_ROLE = "Por";
 
