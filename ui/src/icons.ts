@@ -2,7 +2,11 @@ import { html, type TemplateResult } from "lit";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowDownRight,
   ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
   Check,
   ChevronRight,
   Eye,
@@ -27,7 +31,11 @@ const ICONS = {
   x: X as IconData,
   plus: Plus as IconData,
   play: Play as IconData,
+  "arrow-up": ArrowUp as IconData,
+  "arrow-up-right": ArrowUpRight as IconData,
   "arrow-right": ArrowRight as IconData,
+  "arrow-down-right": ArrowDownRight as IconData,
+  "arrow-down": ArrowDown as IconData,
   chevron: ChevronRight as IconData,
   upload: Upload as IconData,
   file: File as IconData,

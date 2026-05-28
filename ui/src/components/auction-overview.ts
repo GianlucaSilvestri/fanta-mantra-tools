@@ -2,11 +2,15 @@ import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { localized, msg, str } from "@lit/localize";
 
+import { icon } from "../icons";
 import {
+  PERFORMANCE_ICON,
+  performanceBucket,
   ROLE_COLORS,
   ROLE_ORDER,
   toAuctionCredits,
   type Auction,
+  type Performance,
   type PlayerRow,
   type Purchase,
   type RoleSaturationResponse,
@@ -18,6 +22,11 @@ const TOP_N = 5;
 interface RoleBucket {
   role: string;
   players: PlayerRow[];
+  // Per-role market performance: how teams are paying vs the user's
+  // evaluations across every evaluated purchase in this role.
+  evalSpent: number;
+  evalExpected: number;
+  performance: Performance;
 }
 
 @customElement("auction-overview")
@@ -51,6 +60,29 @@ export class AuctionOverview extends LitElement {
 
   private computeBuckets(): RoleBucket[] {
     const sold = new Set(this.purchases.map((p) => p.player_id));
+    const credits = this.auction?.credits_per_team ?? 0;
+    const playerById = new Map(this.players.map((p) => [p.id, p]));
+
+    // Aggregate per-role evaluated spend in one pass over purchases —
+    // a single purchase contributes to every role its player covers,
+    // matching how the saturation bar treats multi-role players.
+    const perfByRole = new Map<string, { spent: number; expected: number }>();
+    for (const role of ROLE_ORDER) {
+      perfByRole.set(role, { spent: 0, expected: 0 });
+    }
+    for (const purchase of this.purchases) {
+      const player = playerById.get(purchase.player_id);
+      if (!player) continue;
+      const scaled = toAuctionCredits(player.evaluation ?? null, credits);
+      if (scaled === null || scaled <= 0) continue;
+      for (const role of player.mantra_roles) {
+        const agg = perfByRole.get(role);
+        if (!agg) continue;
+        agg.spent += purchase.price;
+        agg.expected += scaled;
+      }
+    }
+
     return ROLE_ORDER.map((role) => {
       const candidates = this.players.filter(
         (p) =>
@@ -66,7 +98,14 @@ export class AuctionOverview extends LitElement {
         const vb = b.fanta_market_value ?? 0;
         return vb - va;
       });
-      return { role, players: candidates.slice(0, TOP_N) };
+      const perf = perfByRole.get(role) ?? { spent: 0, expected: 0 };
+      return {
+        role,
+        players: candidates.slice(0, TOP_N),
+        evalSpent: perf.spent,
+        evalExpected: perf.expected,
+        performance: performanceBucket(perf.spent, perf.expected),
+      };
     });
   }
 
@@ -91,6 +130,7 @@ export class AuctionOverview extends LitElement {
             style=${`background: ${color};`}
           >${bucket.role}</span>
           ${this.renderSaturation(bucket.role)}
+          ${this.renderPerformanceArrow(bucket)}
         </div>
         ${bucket.players.length === 0
           ? html`<div class="px-2.5 py-3 text-[11px] text-fg-muted italic text-center">
@@ -101,6 +141,43 @@ export class AuctionOverview extends LitElement {
             </div>`}
       </div>
     `;
+  }
+
+  private renderPerformanceArrow(bucket: RoleBucket) {
+    const choice = PERFORMANCE_ICON[bucket.performance];
+    const title = this.performanceTooltip(bucket);
+    return html`<span class=${"shrink-0 " + choice.cls} title=${title}
+      >${icon(choice.name, { size: 12 })}</span
+    >`;
+  }
+
+  private performanceTooltip(bucket: RoleBucket): string {
+    switch (bucket.performance) {
+      case "up":
+        return msg(
+          "Players in this role are being sold well below your evaluations — great time to buy.",
+        );
+      case "up-right":
+        return msg(
+          "Players in this role are being sold slightly below your evaluations — modest bargains.",
+        );
+      case "right":
+        return msg(
+          "Players in this role are being sold roughly at your evaluations — fair market.",
+        );
+      case "down-right":
+        return msg(
+          "Players in this role are being sold slightly above your evaluations — modestly overpriced.",
+        );
+      case "down":
+        return msg(
+          "Players in this role are being sold well above your evaluations — expensive market.",
+        );
+      case "none":
+        return msg(
+          "No evaluated players in this role have been bought yet — no signal.",
+        );
+    }
   }
 
   private renderSaturation(role: string) {
@@ -128,21 +205,30 @@ export class AuctionOverview extends LitElement {
     // drained). Hue 120→0 via 60 (yellow) is the natural traffic-light
     // ramp.
     const hue = 120 - (pct * 1.2);
+    const fractionTitle = msg(
+      str`Players in this role already bought (${playersSold}) out of the total in the auction pool (${playersTotal}).`,
+    );
+    const barTitle = msg(
+      str`Share of your evaluated credits for this role already spent (${soldTotal} of ${evalTotal}). Green = market still wide open; red = nearly drained.`,
+    );
     return html`
       <span
         class="text-[10px] text-fg-dim tabular-nums ml-auto"
-        title=${msg(str`${playersSold} of ${playersTotal} players sold`)}
+        title=${fractionTitle}
       >${playersSold}/${playersTotal}</span>
       <div
         class="flex-1 h-1.5 rounded-full bg-app border border-line overflow-hidden"
-        title=${msg(str`${soldTotal} / ${evalTotal} evaluated credits sold`)}
+        title=${barTitle}
       >
         <div
           class="h-full rounded-full transition-[width,background-color] duration-200"
           style=${`width: ${pct}%; background-color: hsl(${hue}, 80%, 50%);`}
         ></div>
       </div>
-      <span class="text-[10px] text-fg-muted tabular-nums w-8 text-right">
+      <span
+        class="text-[10px] text-fg-muted tabular-nums w-8 text-right"
+        title=${barTitle}
+      >
         ${pct}%
       </span>
     `;

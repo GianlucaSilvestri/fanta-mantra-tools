@@ -11,6 +11,42 @@ export function toAuctionCredits(
   return Math.floor((stored * credits) / BASE_CREDITS);
 }
 
+// Videogame-style 5-arrow performance indicator. "up" = paying less
+// than the user's evaluations (bargains), "down" = paying more
+// (overspending). "none" = no evaluated purchases to compare against.
+export type Performance =
+  | "up"
+  | "up-right"
+  | "right"
+  | "down-right"
+  | "down"
+  | "none";
+
+export function performanceBucket(spent: number, expected: number): Performance {
+  if (expected <= 0) return "none";
+  const ratio = (expected - spent) / expected;
+  if (ratio > 0.2) return "up";
+  if (ratio > 0.05) return "up-right";
+  if (ratio > -0.05) return "right";
+  if (ratio > -0.2) return "down-right";
+  return "down";
+}
+
+// Icon name + tailwind class per performance bucket. Same palette
+// reused everywhere a performance arrow renders (team headers,
+// role cards in the overview, …).
+export const PERFORMANCE_ICON: Record<
+  Performance,
+  { name: "arrow-up" | "arrow-up-right" | "arrow-right" | "arrow-down-right" | "arrow-down"; cls: string }
+> = {
+  up: { name: "arrow-up", cls: "text-accent" },
+  "up-right": { name: "arrow-up-right", cls: "text-[#7ad97f]" },
+  right: { name: "arrow-right", cls: "text-fg-muted" },
+  "down-right": { name: "arrow-down-right", cls: "text-warn" },
+  down: { name: "arrow-down", cls: "text-danger" },
+  none: { name: "arrow-right", cls: "text-fg-muted opacity-50" },
+};
+
 export type AuctionStatus = "INITIAL" | "IN_PROGRESS" | "TERMINATED";
 export type AuctionType = "CALL" | "RANDOM";
 

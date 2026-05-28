@@ -460,7 +460,7 @@ export class AuctionPage extends LitElement {
         : msg(str`${blockers.length} teams incomplete`);
     return html`
       <div
-        class="flex flex-col items-stretch gap-1.5 min-w-[170px] max-w-[260px]"
+        class="flex flex-col items-stretch gap-1.5 min-w-[170px] max-w-[260px] w-full"
       >
         <button
           type="button"
@@ -476,6 +476,7 @@ export class AuctionPage extends LitElement {
           (can ? "text-accent" : "text-fg-muted")}
           title=${can ? "" : blockers.join("; ")}
         >${blockerText}</p>
+        ${this.renderAuctionProgress()}
         ${this.terminateError
           ? html`<p class="text-danger text-[11px] m-0 text-center">
               ${this.terminateError}
@@ -489,7 +490,7 @@ export class AuctionPage extends LitElement {
     const results = this.searchResults;
     return html`
       <div
-        class="rounded-xl border border-line bg-surface p-3 h-full flex items-center"
+        class="rounded-xl border border-line bg-surface p-3 flex items-center"
       >
         <div class="relative w-full">
           <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none">
@@ -534,10 +535,54 @@ export class AuctionPage extends LitElement {
     `;
   }
 
+  private renderAuctionProgress() {
+    const a = this.auction;
+    if (!a) return nothing;
+    const totalCredits = a.number_of_auctioners * a.credits_per_team;
+    const spentCredits = this.purchases.reduce((sum, p) => sum + p.price, 0);
+    const totalPlayers = a.number_of_auctioners * a.min_team_size;
+    const boughtPlayers = this.purchases.length;
+    const pct =
+      totalCredits > 0
+        ? Math.min(100, Math.round((spentCredits / totalCredits) * 100))
+        : 0;
+    // Red at 0% → green at 100%: bar fills as the auction progresses
+    // toward termination. A full green bar means "ready to wrap up",
+    // mirroring the read direction of the adjacent Terminate button.
+    const hue = pct * 1.2;
+    const fractionTitle = msg(
+      str`Players already bought (${boughtPlayers}) out of the minimum needed across all teams (${totalPlayers}).`,
+    );
+    const barTitle = msg(
+      str`Credits spent across all teams (${spentCredits}) out of the total auction budget (${totalCredits}). Red = just started; green = nearly done.`,
+    );
+    return html`
+      <div class="flex items-center gap-2 mt-1">
+        <span
+          class="text-[10px] text-fg-dim tabular-nums"
+          title=${fractionTitle}
+        >${boughtPlayers}/${totalPlayers}</span>
+        <div
+          class="flex-1 h-1.5 rounded-full bg-app border border-line overflow-hidden"
+          title=${barTitle}
+        >
+          <div
+            class="h-full rounded-full transition-[width,background-color] duration-200"
+            style=${`width: ${pct}%; background-color: hsl(${hue}, 80%, 50%);`}
+          ></div>
+        </div>
+        <span
+          class="text-[10px] text-fg-muted tabular-nums w-8 text-right"
+          title=${barTitle}
+        >${pct}%</span>
+      </div>
+    `;
+  }
+
   private renderTopRandom() {
     return html`
       <div
-        class="rounded-xl border border-line bg-surface p-3 h-full flex items-center"
+        class="rounded-xl border border-line bg-surface p-3 flex items-center"
       >
         <button
           type="button"
@@ -753,10 +798,9 @@ export class AuctionPage extends LitElement {
 
       <section class="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 items-stretch">
         ${isRunning
-          ? html`<div class="md:col-span-2">
-              ${a.type === "CALL"
-                ? this.renderTopSearch()
-                : this.renderTopRandom()}
+          ? html`<div class="md:col-span-2 flex flex-col gap-2">
+              ${this.renderTopSearch()}
+              ${this.renderTopRandom()}
             </div>`
           : nothing}
         ${this.renderInfoCard(a, infoSpan)}
