@@ -17,6 +17,7 @@ import {
   type Purchase,
 } from "../auction-shared";
 import "./auction-evaluations";
+import "./auction-overview";
 import "./auction-running";
 import "./auction-finished";
 import "./auction-dialog";
@@ -764,14 +765,22 @@ export class AuctionPage extends LitElement {
     return html`
       <section class="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 items-stretch">
         <div class="md:col-span-2">${leftSlot}</div>
-        <div
-          class="md:col-span-10 rounded-xl border border-line bg-surface min-h-[120px] p-4 flex items-center justify-center text-fg-muted text-[13px]"
-        >
-          ${msg("Auction overview — coming soon")}
+        <div class="md:col-span-10">
+          <auction-overview
+            .auction=${a}
+            .players=${this.players}
+            .purchases=${this.purchases}
+            @player-selected=${this.onOverviewSelect}
+          ></auction-overview>
         </div>
       </section>
     `;
   }
+
+  private onOverviewSelect = (e: Event): void => {
+    const detail = (e as CustomEvent<{ player: PlayerRow }>).detail;
+    if (detail?.player) this.selectPlayer(detail.player);
+  };
 
   private renderCenter(a: Auction) {
     switch (a.status) {
