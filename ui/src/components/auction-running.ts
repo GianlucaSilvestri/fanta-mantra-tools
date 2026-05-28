@@ -17,6 +17,7 @@ import {
   type Team,
 } from "../auction-shared";
 import "./module-pitch";
+import "./module-lineup-dialog";
 
 interface TeamAggregate {
   team: Team;
@@ -48,6 +49,11 @@ export class AuctionRunning extends LitElement {
 
   // Static reference data, fetched once on mount.
   @state() private modules: LineupModule[] = [];
+
+  // Module-lineup explainer dialog state.
+  @state() private lineupDialogOpen = false;
+  @state() private lineupTeamId: number | null = null;
+  @state() private lineupModuleName: string | null = null;
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -105,6 +111,16 @@ export class AuctionRunning extends LitElement {
     }
     return teams.map((t) => byTeam.get(t.id)!);
   }
+
+  private openLineup(teamId: number, moduleName: string): void {
+    this.lineupTeamId = teamId;
+    this.lineupModuleName = moduleName;
+    this.lineupDialogOpen = true;
+  }
+
+  private onLineupDialogClosed = (): void => {
+    this.lineupDialogOpen = false;
+  };
 
   private notifyPurchasesChanged(): void {
     this.dispatchEvent(
@@ -186,7 +202,12 @@ export class AuctionRunning extends LitElement {
     const left = this.auction.credits_per_team - agg.spent;
     const minOk = agg.count >= this.auction.min_team_size;
     const gkOk = agg.gks >= this.auction.number_of_goalkeepers;
-    const top3 = (this.modulePredictions[t.id] ?? []).slice(0, 3);
+    // No purchases yet → backend returns 1.0 for every module (no
+    // signal). Hide the predictions block in that case rather than
+    // showing a meaningless "all modules tied" list.
+    const top3 = agg.count === 0
+      ? []
+      : (this.modulePredictions[t.id] ?? []).slice(0, 3);
 
     return html`
       <div
@@ -216,7 +237,12 @@ export class AuctionRunning extends LitElement {
           ? html`<div class="px-3 py-2 border-b border-line flex flex-col gap-1">
               ${top3.map(
                 (m) => html`
-                  <div class="flex items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    @click=${() => this.openLineup(t.id, m.name)}
+                    title=${msg(str`Show ${m.name} lineup for ${t.team_name}`)}
+                    class="flex items-center gap-2 text-[11px] w-full px-1 py-0.5 -mx-1 rounded hover:bg-surface-hover text-left"
+                  >
                     <span class="font-semibold text-fg w-9">${m.name}</span>
                     <div class="flex-1 h-0.5 bg-line rounded-full overflow-hidden">
                       <div
@@ -227,7 +253,7 @@ export class AuctionRunning extends LitElement {
                     <span class="text-fg-muted tabular-nums w-9 text-right">
                       ${Math.round(m.confidence * 100)}%
                     </span>
-                  </div>
+                  </button>
                 `,
               )}
             </div>`
@@ -347,6 +373,14 @@ export class AuctionRunning extends LitElement {
             </section>
           `
         : nothing}
+
+      <module-lineup-dialog
+        .auctionId=${this.auction.id}
+        .teamId=${this.lineupTeamId}
+        .moduleName=${this.lineupModuleName}
+        .open=${this.lineupDialogOpen}
+        @dialog-closed=${this.onLineupDialogClosed}
+      ></module-lineup-dialog>
     `;
   }
 }

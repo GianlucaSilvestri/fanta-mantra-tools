@@ -1,7 +1,12 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
-import { ROLE_COLORS, type LineupModule, type LineupModuleSlot } from "../auction-shared";
+import {
+  reorderWingsToSides,
+  ROLE_COLORS,
+  type LineupModule,
+  type LineupModuleSlot,
+} from "../auction-shared";
 
 // Map module name digits ("343", "4231", …) to per-row slot counts.
 // Position 1 is always the goalkeeper; subsequent digits slice the
@@ -67,8 +72,10 @@ export class ModulePitch extends LitElement {
       rowsFromName(this.module.name),
     );
     // Visually: attackers on top, goalkeeper on bottom — reverse the
-    // logical (goalie-first) row order for rendering.
-    const visualRows = [...rows].reverse();
+    // logical (goalie-first) row order for rendering. Within each row,
+    // push wing slots to the outsides so two wings sit on opposite
+    // touchlines rather than stacked together.
+    const visualRows = [...rows].reverse().map(reorderWingsToSides);
 
     return html`
       <div

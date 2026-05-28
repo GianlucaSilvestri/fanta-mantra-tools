@@ -79,6 +79,57 @@ export interface LineupModule {
   slots: LineupModuleSlot[];
 }
 
+export interface LineupSlotPlayer {
+  id: number;
+  name: string;
+  team: string;
+  mantra_roles: string[];
+  price: number;
+  assigned_role: string | null;
+  contribution: number;
+}
+
+export interface LineupSlotAssignment {
+  position: number;
+  allowed_roles: string[];
+  player: LineupSlotPlayer | null;
+}
+
+export interface LineupBenchPlayer {
+  id: number;
+  name: string;
+  team: string;
+  mantra_roles: string[];
+  price: number;
+}
+
+export interface ModuleLineupResponse {
+  auction_id: number;
+  team_id: number;
+  team_name: string;
+  module_name: string;
+  score: number;
+  slots: LineupSlotAssignment[];
+  bench: LineupBenchPlayer[];
+}
+
+export interface BuyerInterestTeam {
+  team_id: number;
+  team_name: string;
+  confidence: number;
+  fit: number;
+  afford: number;
+  remaining_credit: number;
+}
+
+export interface BuyerInterestResponse {
+  auction_id: number;
+  player_id: number;
+  mv_scaled: number;
+  broadness: number;
+  teams: BuyerInterestTeam[];
+}
+
 // GK marker (matches backend GK_ROLE = "Por").
 export const GK_ROLE = "Por";
 
@@ -101,6 +152,33 @@ export const ROLE_COLORS: Record<string, string> = {
   A: "hsl(351, 89%, 53%)",
   Pc: "hsl(351, 89%, 53%)",
 };
+
+// Roles that visually belong on the touchlines rather than central.
+const WING_ROLES = new Set(["W", "E"]);
+
+export function reorderWingsToSides<T extends { allowed_roles: string[] }>(
+  row: T[],
+): T[] {
+  // Push wing slots (W/E) to the outsides of their row so two wings
+  // end up on opposite touchlines instead of stacked together — e.g.
+  // 3511 mid [M, M, C, E/W, E/W] becomes [E/W, M, M, C, E/W].
+  // A no-op for rows that already have ≤1 wing or are already
+  // symmetric (e.g. 343 attack [W/A, A/Pc, W/A]).
+  if (row.length <= 2) return row;
+  const wings: T[] = [];
+  const others: T[] = [];
+  for (const slot of row) {
+    if (slot.allowed_roles.some((r) => WING_ROLES.has(r))) wings.push(slot);
+    else others.push(slot);
+  }
+  if (wings.length < 2) return row;
+  return [
+    wings[0],
+    ...others,
+    ...wings.slice(1, -1),
+    wings[wings.length - 1],
+  ];
+}
 
 export function roleSortKey(roles: string[]): number {
   let min = ROLE_ORDER.length;

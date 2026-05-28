@@ -105,6 +105,227 @@ def compute_module_predictions(
     return out
 
 
+def compute_module_lineup(
+    session: Session,
+    auction: Auction,
+    team_id: int,
+    module_name: str,
+) -> dict:
+    """Compute the optimal player→slot assignment for one team & module.
+
+    Mirrors the algorithm used by `compute_module_predictions` (same
+    lowest-weight role reduction, same fit-quality scaled value
+    matrix), but exposes the assignment indices so the UI can show
+    *why* a module is being recommended — the actual lineup the team's
+    purchases produce, plus which players are left on the bench.
+
+    Raises ``LookupError`` if ``module_name`` is not a known module.
+    """
+    weights = _load_weights(session)
+    modules = _load_modules(session)
+    target = next(((n, s) for n, s in modules if n == module_name), None)
+    if target is None:
+        raise LookupError(f"unknown module {module_name!r}")
+    _name, slots = target
+
+    purchases = _load_team_purchases_full(session, auction.id, team_id)
+
+    slot_payloads = [
+        {"position": i + 1, "allowed_roles": [r.value for r in s]}
+        for i, s in enumerate(slots)
+    ]
+
+    if not purchases:
+        return {
+            "module_name": module_name,
+            "score": 0.0,
+            "slots": [{**sp, "player": None} for sp in slot_payloads],
+            "bench": [],
+        }
+
+    reduced_roles = [
+        _lowest_weight_roles(frozenset(p["mantra_roles"]), weights)
+        for p in purchases
+    ]
+    matrix = _value_matrix(
+        [(p["price"], rr) for p, rr in zip(purchases, reduced_roles, strict=True)],
+        slots,
+        weights,
+    )
+    score, slot_to_row = _rectangular_assignment_max_with_indices(matrix)
+
+    used_rows: set[int] = set()
+    enriched_slots: list[dict] = []
+    for j, slot_payload in enumerate(slot_payloads):
+        r = slot_to_row[j]
+        if r is None:
+            enriched_slots.append({**slot_payload, "player": None})
+            continue
+        p = purchases[r]
+        # The actual role the player is being slotted as: the highest-weight
+        # role in (player's lowest-weight roles ∩ slot's allowed roles).
+        intersection = reduced_roles[r] & slots[j]
+        assigned_role = (
+            max(intersection, key=lambda x: weights[x]).value if intersection else None
+        )
+        enriched_slots.append(
+            {
+                **slot_payload,
+                "player": {
+                    "id": p["player_id"],
+                    "name": p["name"],
+                    "team": p["team"],
+                    "mantra_roles": [r.value for r in p["mantra_roles"]],
+                    "price": p["price"],
+                    "assigned_role": assigned_role,
+                    "contribution": round(matrix[r][j], 2),
+                },
+            }
+        )
+        used_rows.add(r)
+
+    bench = [
+        {
+            "id": p["player_id"],
+            "name": p["name"],
+            "team": p["team"],
+            "mantra_roles": [r.value for r in p["mantra_roles"]],
+            "price": p["price"],
+        }
+        for i, p in enumerate(purchases)
+        if i not in used_rows
+    ]
+
+    return {
+        "module_name": module_name,
+        "score": round(score, 2),
+        "slots": enriched_slots,
+        "bench": bench,
+    }
+
+
+def compute_player_interest(
+    session: Session,
+    auction: Auction,
+    player: AuctionPlayer,
+    top_n: int = 5,
+) -> dict:
+    """Per-team buying interest for one player.
+
+    For each team we estimate how much adding ``player`` (at the player's
+    scaled fanta_market_value) would lift the team's best-fit module
+    score, weighted by how committed the team already is to that module.
+    The result is multiplied by an affordability factor (does the team
+    have credits left to buy at market value?) and a broadness factor
+    keyed off the player's market value — cheap players surface fewer
+    interested teams, expensive ones surface more.
+
+    Returns ``{auction_id, player_id, mv_scaled, broadness, teams: [...]}``
+    where ``teams`` is already sorted by confidence descending and
+    truncated to ``top_n``.
+    """
+    weights = _load_weights(session)
+    modules = _load_modules(session)
+    purchases_by_team = _load_purchases_by_team(session, auction.id)
+
+    teams = list(
+        session.execute(
+            select(AuctionTeam)
+            .where(AuctionTeam.auction_id == auction.id)
+            .order_by(AuctionTeam.id)
+        ).scalars()
+    )
+
+    credits_per_team = int(auction.credits_per_team)
+    raw_mv = int(player.fanta_market_value or 0)
+    # The stored value is base-1000; scale into the auction's budget.
+    # Floor at 1 when raw_mv > 0 so a sub-credit market value still
+    # contributes some signal to the assignment matrix.
+    mv_scaled = max(1, round(raw_mv * credits_per_team / 1000)) if raw_mv > 0 else 0
+
+    # mv_anchor ≈ 10% of the per-team budget. A player at or above the
+    # anchor is "broadly desirable" (broadness=1.0); a player well below
+    # shrinks every team's bar proportionally.
+    mv_anchor = max(1, credits_per_team * 0.10)
+    broadness = max(0.1, min(1.0, mv_scaled / mv_anchor)) if mv_scaled > 0 else 0.1
+
+    player_roles_reduced = _lowest_weight_roles(
+        frozenset(player.mantra_roles), weights
+    )
+
+    per_team: list[dict] = []
+    for team in teams:
+        purchases = purchases_by_team.get(team.id, [])
+        spent = sum(price for price, _ in purchases)
+        remaining = max(0, credits_per_team - spent)
+
+        # Module-by-module: solve assignment without and with the
+        # hypothetical purchase at the player's market value.
+        old_scores: list[float] = []
+        deltas: list[float] = []
+        for _name, slots in modules:
+            old_matrix = _value_matrix(purchases, slots, weights)
+            new_matrix = _value_matrix(
+                [*purchases, (mv_scaled, player_roles_reduced)],
+                slots,
+                weights,
+            )
+            old_score = _rectangular_assignment_max(old_matrix)
+            new_score = _rectangular_assignment_max(new_matrix)
+            old_scores.append(old_score)
+            deltas.append(max(0.0, new_score - old_score))
+
+        best_old = max(old_scores) if old_scores else 0.0
+        if best_old > 0:
+            # Favor modules the team is already committed to: weight
+            # each module's marginal gain by how strong that module
+            # already is relative to the team's best module.
+            fit = max(
+                (
+                    delta * (old / best_old)
+                    for delta, old in zip(deltas, old_scores, strict=True)
+                ),
+                default=0.0,
+            )
+        else:
+            # Empty team — no commitment yet to weight by. Use the raw
+            # max marginal gain so empty teams aren't unfairly zeroed.
+            fit = max(deltas, default=0.0)
+
+        if mv_scaled <= 0:
+            afford = 1.0
+        else:
+            afford = min(1.0, remaining / mv_scaled)
+
+        raw = fit * afford
+        per_team.append(
+            {
+                "team_id": team.id,
+                "team_name": team.team_name,
+                "fit": round(fit, 2),
+                "afford": round(afford, 4),
+                "remaining_credit": remaining,
+                "_raw": raw,
+            }
+        )
+
+    max_raw = max((row["_raw"] for row in per_team), default=0.0)
+    for row in per_team:
+        rel = (row["_raw"] / max_raw) if max_raw > 0 else 0.0
+        row["confidence"] = round(rel * broadness, 4)
+        del row["_raw"]
+
+    per_team.sort(key=lambda r: r["confidence"], reverse=True)
+
+    return {
+        "auction_id": auction.id,
+        "player_id": player.player_id,
+        "mv_scaled": mv_scaled,
+        "broadness": round(broadness, 4),
+        "teams": per_team[:top_n],
+    }
+
+
 def _load_weights(session: Session) -> dict[MantraRole, int]:
     return {
         row.role: int(row.weight)
@@ -132,6 +353,46 @@ def _load_modules(
         names[module_id] = name
         slots[module_id].append(frozenset(allowed))
     return [(names[mid], slots[mid]) for mid in names]
+
+
+def _load_team_purchases_full(
+    session: Session, auction_id: int, team_id: int
+) -> list[dict]:
+    """Full purchase rows for one team — used by the lineup explainer.
+
+    Returns dicts with player_id/name/team/mantra_roles/price, sorted by
+    name. The prediction hot-path uses the leaner `_load_purchases_by_team`.
+    """
+    rows = session.execute(
+        select(
+            AuctionPurchase.player_id,
+            AuctionPurchase.price,
+            AuctionPlayer.name,
+            AuctionPlayer.team,
+            AuctionPlayer.mantra_roles,
+        )
+        .join(
+            AuctionPlayer,
+            (AuctionPlayer.auction_id == AuctionPurchase.auction_id)
+            & (AuctionPlayer.player_id == AuctionPurchase.player_id),
+        )
+        .where(
+            AuctionPurchase.auction_id == auction_id,
+            AuctionPurchase.team_id == team_id,
+        )
+        .order_by(AuctionPlayer.name)
+    ).all()
+
+    return [
+        {
+            "player_id": int(pid),
+            "name": pname,
+            "team": pteam,
+            "mantra_roles": tuple(proles),
+            "price": int(price),
+        }
+        for pid, price, pname, pteam, proles in rows
+    ]
 
 
 def _load_purchases_by_team(
@@ -203,12 +464,28 @@ def _value_matrix(
 
 def _rectangular_assignment_max(matrix: list[list[float]]) -> float:
     """Return the maximum sum picking at most one cell per row and per
-    column. Implementation: pad to a square with zeros and run a
-    minimization Hungarian on `M - value`."""
+    column."""
+    return _rectangular_assignment_max_with_indices(matrix)[0]
+
+
+def _rectangular_assignment_max_with_indices(
+    matrix: list[list[float]],
+) -> tuple[float, list[int | None]]:
+    """Maximum-sum rectangular assignment plus the chosen indices.
+
+    Returns ``(total, slot_to_row)`` where ``slot_to_row[j]`` is the
+    0-indexed row assigned to column j, or ``None`` if no real row was
+    picked for that column (slot left empty: either filled by a padding
+    dummy or by a zero-value real cell — a player with no role
+    intersection contributes nothing, so we treat it as "no fit").
+
+    Implementation: pad the matrix to a square with zeros and run a
+    minimization Hungarian on ``big - value``.
+    """
     rows = len(matrix)
     cols = len(matrix[0]) if rows else 0
     if rows == 0 or cols == 0:
-        return 0.0
+        return 0.0, [None] * cols
 
     n = max(rows, cols)
     big = max(max(row) for row in matrix)
@@ -219,20 +496,32 @@ def _rectangular_assignment_max(matrix: list[list[float]]) -> float:
         for j in range(cols):
             cost[i][j] = big - matrix[i][j]
 
-    min_cost = _hungarian_min(cost)
+    min_cost, col_to_row = _hungarian_min(cost)
     # Each of the n rows is assigned to one of n cols. Real cells
     # contribute (big - value); padded cells contribute big. So
     # min_cost = n*big - sum(selected real values). Solve for the sum.
-    return n * big - min_cost
+    total = n * big - min_cost
+
+    slot_to_row: list[int | None] = [None] * cols
+    for j in range(cols):
+        r = col_to_row[j]
+        if r is None or r >= rows:
+            continue
+        if matrix[r][j] <= 0:
+            # Zero-value real cell — no role intersection, treat as unfilled.
+            continue
+        slot_to_row[j] = r
+    return total, slot_to_row
 
 
-def _hungarian_min(cost: list[list[float]]) -> float:
+def _hungarian_min(cost: list[list[float]]) -> tuple[float, list[int | None]]:
     """Solve the n×n assignment problem (minimisation).
 
     Standard O(n³) potentials-based implementation (the e-maxx variant).
-    Returns just the total cost — we don't need the assignment indices.
-    1-indexed internally to keep the algorithm transcribable; arrays
-    sized n+1 to accommodate the leading sentinel.
+    Returns ``(total_cost, col_to_row)`` where ``col_to_row[j]`` is the
+    0-indexed row matched to column j (always populated for a square
+    matrix). 1-indexed internally to keep the algorithm transcribable;
+    arrays sized n+1 to accommodate the leading sentinel.
     """
     n = len(cost)
     INF = _INF
@@ -280,7 +569,9 @@ def _hungarian_min(cost: list[list[float]]) -> float:
             j0 = j1
 
     total = 0.0
+    col_to_row: list[int | None] = [None] * n
     for j in range(1, n + 1):
         if p[j] != 0:
             total += cost[p[j] - 1][j - 1]
-    return total
+            col_to_row[j - 1] = p[j] - 1
+    return total, col_to_row
