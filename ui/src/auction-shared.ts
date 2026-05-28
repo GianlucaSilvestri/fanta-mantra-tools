@@ -17,6 +17,7 @@ export type AuctionType = "CALL" | "RANDOM";
 export interface Team {
   id: number;
   team_name: string;
+  is_my_team: boolean;
 }
 
 export interface Auction {

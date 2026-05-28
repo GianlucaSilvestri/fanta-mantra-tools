@@ -208,7 +208,6 @@ def compute_player_interest(
     session: Session,
     auction: Auction,
     player: AuctionPlayer,
-    top_n: int = 5,
 ) -> dict:
     """Per-team buying interest for one player.
 
@@ -221,8 +220,8 @@ def compute_player_interest(
     interested teams, expensive ones surface more.
 
     Returns ``{auction_id, player_id, mv_scaled, broadness, teams: [...]}``
-    where ``teams`` is already sorted by confidence descending and
-    truncated to ``top_n``.
+    where ``teams`` is every team in the auction sorted by confidence
+    descending.
     """
     weights = _load_weights(session)
     modules = _load_modules(session)
@@ -322,7 +321,7 @@ def compute_player_interest(
         "player_id": player.player_id,
         "mv_scaled": mv_scaled,
         "broadness": round(broadness, 4),
-        "teams": per_team[:top_n],
+        "teams": per_team,
     }
 
 

@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, literal, select
+from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -50,6 +50,10 @@ class AuctionCreate(BaseModel):
     credits_per_team: int = Field(ge=1)
     number_of_goalkeepers: int = Field(ge=0)
     teams: list[str] = Field(default_factory=list)
+    # Optional: index into `teams` marking which one is the user's own
+    # team. Required to ever start the auction, but optional at create
+    # time so the user can set it later from the edit dialog.
+    my_team_index: int | None = Field(default=None, ge=0)
 
 
 class AuctionPatch(BaseModel):
@@ -72,6 +76,19 @@ class TeamCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     team_name: str = Field(min_length=1)
+    is_my_team: bool = False
+
+
+class TeamPatch(BaseModel):
+    """Single-field patch for an auction_team row.
+
+    Currently only the `is_my_team` flag is mutable; team_name is
+    immutable post-creation by design.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_my_team: bool
 
 
 class EvaluationPatch(BaseModel):
@@ -118,7 +135,29 @@ def _pct(value: int, base: int) -> float:
 
 
 def _serialize_team(t: AuctionTeam) -> dict:
-    return {"id": t.id, "team_name": t.team_name}
+    return {"id": t.id, "team_name": t.team_name, "is_my_team": t.is_my_team}
+
+
+def _set_my_team(session, auction_id: int, team_id: int) -> None:
+    """Atomically clear any existing `is_my_team=true` for this auction
+    and mark the target team. Safe to call when the target is already
+    set — the partial unique index never sees two TRUE rows simultaneously
+    because we clear before setting in the same transaction.
+    """
+    session.execute(
+        update(AuctionTeam)
+        .where(
+            AuctionTeam.auction_id == auction_id,
+            AuctionTeam.id != team_id,
+            AuctionTeam.is_my_team.is_(True),
+        )
+        .values(is_my_team=False)
+    )
+    session.execute(
+        update(AuctionTeam)
+        .where(AuctionTeam.id == team_id)
+        .values(is_my_team=True)
+    )
 
 
 def _serialize_auction(a: Auction, team_count: int, teams: list[AuctionTeam] | None = None) -> dict:
@@ -166,6 +205,15 @@ def create_auction(body: AuctionCreate) -> dict:
             raise HTTPException(status_code=400, detail=f"duplicate team name: {name}")
         seen.add(name)
 
+    if body.my_team_index is not None and body.my_team_index >= len(body.teams):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"my_team_index {body.my_team_index} is out of range for "
+                f"{len(body.teams)} teams"
+            ),
+        )
+
     with SessionLocal() as session:
         with session.begin():
             auction = Auction(
@@ -188,6 +236,11 @@ def create_auction(body: AuctionCreate) -> dict:
                 session.add(t)
             session.flush()
 
+            if body.my_team_index is not None:
+                teams[body.my_team_index].is_my_team = True
+                session.flush()
+
+            teams = _ordered_teams(session, auction.id)
             return _serialize_auction(auction, len(teams), teams)
 
 
@@ -210,19 +263,26 @@ def list_auctions() -> list[dict]:
         return [_serialize_auction(a, int(count)) for a, count in session.execute(stmt).all()]
 
 
+def _ordered_teams(session, auction_id: int) -> list[AuctionTeam]:
+    """Teams for an auction with the user's own team first (if marked),
+    then by id ascending. One place to enforce the ordering so every
+    consumer (list, detail, dialog, dropdown) agrees.
+    """
+    return list(
+        session.execute(
+            select(AuctionTeam)
+            .where(AuctionTeam.auction_id == auction_id)
+            .order_by(AuctionTeam.is_my_team.desc(), AuctionTeam.id.asc())
+        )
+        .scalars()
+    )
+
+
 def _load_auction_with_teams(session, auction_id: int) -> tuple[Auction, list[AuctionTeam]]:
     auction = session.get(Auction, auction_id)
     if auction is None:
         raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
-    teams = list(
-        session.execute(
-            select(AuctionTeam)
-            .where(AuctionTeam.auction_id == auction_id)
-            .order_by(AuctionTeam.id.asc())
-        )
-        .scalars()
-    )
-    return auction, teams
+    return auction, _ordered_teams(session, auction_id)
 
 
 @router.get("/{auction_id}")
@@ -305,6 +365,23 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ),
                     )
 
+                my_team_count = int(
+                    session.execute(
+                        select(func.count(AuctionTeam.id)).where(
+                            AuctionTeam.auction_id == auction_id,
+                            AuctionTeam.is_my_team.is_(True),
+                        )
+                    ).scalar_one()
+                )
+                if my_team_count == 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "cannot start auction: you must mark one team as "
+                            "your own before starting"
+                        ),
+                    )
+
                 snapshot = _compute_evaluation_status(session, auction)
                 blockers = [
                     group for group, info in snapshot.items() if info["status"] != "ok"
@@ -373,14 +450,7 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                 setattr(auction, k, v)
             session.flush()
 
-            teams = list(
-                session.execute(
-                    select(AuctionTeam)
-                    .where(AuctionTeam.auction_id == auction_id)
-                    .order_by(AuctionTeam.id.asc())
-                )
-                .scalars()
-            )
+            teams = _ordered_teams(session, auction_id)
             return _serialize_auction(auction, len(teams), teams)
 
 
@@ -431,6 +501,42 @@ def add_team(auction_id: int, body: TeamCreate) -> dict:
                     status_code=409,
                     detail=f"team name {body.team_name!r} already exists for this auction",
                 ) from exc
+            if body.is_my_team:
+                _set_my_team(session, auction_id, team.id)
+                session.refresh(team)
+            return _serialize_team(team)
+
+
+@router.patch("/{auction_id}/teams/{team_id}")
+def patch_team(auction_id: int, team_id: int, body: TeamPatch) -> dict:
+    """Flip the `is_my_team` flag on a single team.
+
+    Setting `true` atomically unsets any other team in the same auction
+    that was previously marked, so the partial unique index is never
+    violated. Setting `false` simply clears this team's flag.
+    """
+    with SessionLocal() as session:
+        with session.begin():
+            auction = session.get(Auction, auction_id)
+            if auction is None:
+                raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
+            if auction.status != AuctionStatus.INITIAL:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"auction is {auction.status.value}; teams can only be edited while INITIAL",
+                )
+            team = session.get(AuctionTeam, team_id)
+            if team is None or team.auction_id != auction_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"team {team_id} not found in auction {auction_id}",
+                )
+            if body.is_my_team:
+                _set_my_team(session, auction_id, team_id)
+            else:
+                team.is_my_team = False
+            session.flush()
+            session.refresh(team)
             return _serialize_team(team)
 
 
@@ -1277,13 +1383,7 @@ def get_module_predictions(auction_id: int) -> dict:
 
         per_team = compute_module_predictions(session, auction)
 
-        teams = list(
-            session.execute(
-                select(AuctionTeam)
-                .where(AuctionTeam.auction_id == auction_id)
-                .order_by(AuctionTeam.id)
-            ).scalars()
-        )
+        teams = _ordered_teams(session, auction_id)
         return {
             "auction_id": auction_id,
             "teams": [

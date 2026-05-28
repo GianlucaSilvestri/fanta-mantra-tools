@@ -211,11 +211,22 @@ export class AuctionRunning extends LitElement {
 
     return html`
       <div
-        class="flex flex-col min-w-[240px] w-[240px] rounded-xl border border-line bg-surface shrink-0"
+        class=${"flex flex-col min-w-[240px] w-[240px] rounded-xl shrink-0 border " +
+        (t.is_my_team
+          ? "border-accent/30 bg-accent/[0.04]"
+          : "border-line bg-surface")}
       >
         <div class="px-3 py-2.5 border-b border-line flex flex-col gap-1">
           <div class="flex items-center justify-between gap-2">
-            <div class="text-[13px] font-bold truncate">${t.team_name}</div>
+            <div class="flex items-center gap-1.5 min-w-0">
+              <div class="text-[13px] font-bold truncate">${t.team_name}</div>
+              ${t.is_my_team
+                ? html`<span
+                    class="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-px rounded bg-accent text-black"
+                    title=${msg("This is your team")}
+                  >${msg("you")}</span>`
+                : nothing}
+            </div>
             <div
               class=${"text-[12px] font-semibold tabular-nums " +
               (left <= 0 ? "text-danger" : "text-accent")}

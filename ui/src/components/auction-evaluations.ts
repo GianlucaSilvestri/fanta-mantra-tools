@@ -26,6 +26,12 @@ interface PlayerRow {
   evaluation: number | null;
 }
 
+interface Team {
+  id: number;
+  team_name: string;
+  is_my_team: boolean;
+}
+
 interface Auction {
   id: number;
   name: string;
@@ -36,6 +42,7 @@ interface Auction {
   credits_per_team: number;
   number_of_goalkeepers: number;
   number_of_teams: number;
+  teams?: Team[];
 }
 
 interface EvaluationStatus {
@@ -167,6 +174,10 @@ export class AuctionEvaluations extends LitElement {
     return this.auction.number_of_teams === this.auction.number_of_auctioners;
   }
 
+  private get myTeamOk(): boolean {
+    return !!this.auction.teams?.some((t) => t.is_my_team);
+  }
+
   private get allGreen(): boolean {
     const s = this.status;
     return (
@@ -174,7 +185,8 @@ export class AuctionEvaluations extends LitElement {
       s.credits.status === "ok" &&
       s.players.status === "ok" &&
       s.goalkeepers.status === "ok" &&
-      this.teamsOk
+      this.teamsOk &&
+      this.myTeamOk
     );
   }
 
@@ -536,6 +548,23 @@ export class AuctionEvaluations extends LitElement {
           </div>
         </div>
 
+        <div class="flex items-baseline justify-between gap-3">
+          <div class="text-[13px] font-semibold">${msg("Your team")}</div>
+          <div class="text-[12px] text-fg-dim">
+            <span>
+              ${this.myTeamOk
+                ? this.auction.teams?.find((t) => t.is_my_team)?.team_name
+                : msg("not picked")}
+            </span>
+            <span
+              class=${"ml-2 font-bold " +
+              (this.myTeamOk ? PCT_CLS.ok : PCT_CLS.under)}
+            >
+              ${this.myTeamOk ? msg("ok") : msg("under")}
+            </span>
+          </div>
+        </div>
+
         <div class="h-px bg-line my-1"></div>
 
         <button
@@ -551,7 +580,7 @@ export class AuctionEvaluations extends LitElement {
           ? nothing
           : html`<p class="text-fg-dim text-[12px] text-center m-0">
               ${msg(html`All indicators (credits, players, goalkeepers,
-              teams) must be
+              teams, your team) must be
               <span class="text-accent font-bold">ok</span> to start.`)}
             </p>`}
         ${this.startError
