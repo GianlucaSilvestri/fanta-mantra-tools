@@ -15,6 +15,7 @@ import {
   type ModulePredictionsResponse,
   type PlayerRow,
   type Purchase,
+  type RoleSaturationResponse,
 } from "../auction-shared";
 import "./auction-evaluations";
 import "./auction-overview";
@@ -66,6 +67,7 @@ export class AuctionPage extends LitElement {
   @state() private players: PlayerRow[] = [];
   @state() private purchases: Purchase[] = [];
   @state() private modulePredictions: Record<number, ModulePrediction[]> = {};
+  @state() private roleSaturation: RoleSaturationResponse | null = null;
   @state() private terminating = false;
   @state() private terminateError = "";
 
@@ -142,11 +144,13 @@ export class AuctionPage extends LitElement {
           this.loadPlayers(),
           this.loadPurchases(),
           this.loadModulePredictions(),
+          this.loadRoleSaturation(),
         ]);
       } else {
         this.players = [];
         this.purchases = [];
         this.modulePredictions = {};
+        this.roleSaturation = null;
         // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
         // call/buy selection so the UI doesn't render a buy form against
         // stale state.
@@ -186,12 +190,28 @@ export class AuctionPage extends LitElement {
     this.modulePredictions = next;
   }
 
+  private async loadRoleSaturation(): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/role-saturation`,
+    );
+    if (!res.ok) throw new Error(`/role-saturation HTTP ${res.status}`);
+    this.roleSaturation = (await res.json()) as RoleSaturationResponse;
+  }
+
   private onAuctionStarted = (): void => {
     void this.load();
   };
 
+  private refreshAfterPurchaseChange(): Promise<unknown> {
+    return Promise.all([
+      this.loadPurchases(),
+      this.loadModulePredictions(),
+      this.loadRoleSaturation(),
+    ]);
+  }
+
   private onPurchasesChanged = (): void => {
-    void Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
+    void this.refreshAfterPurchaseChange();
   };
 
   private computeTerminateBlockers(): string[] {
@@ -360,7 +380,7 @@ export class AuctionPage extends LitElement {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
-      await Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
+      await this.refreshAfterPurchaseChange();
       this.clearSelection();
     } catch (err) {
       this.buyError = err instanceof Error ? err.message : String(err);
@@ -644,8 +664,8 @@ export class AuctionPage extends LitElement {
               <span class="text-fg flex-1 truncate">${t.team_name}</span>
               <div class="w-16 h-0.5 bg-line rounded-full overflow-hidden">
                 <div
-                  class="h-full bg-accent rounded-full"
-                  style=${`width: ${Math.round(t.confidence * 100)}%`}
+                  class="h-full rounded-full"
+                  style=${`width: ${Math.round(t.confidence * 100)}%; background-color: hsl(${Math.round(t.confidence * 100) * 1.2}, 80%, 50%);`}
                 ></div>
               </div>
               <span class="text-fg-muted tabular-nums w-8 text-right">
@@ -770,6 +790,7 @@ export class AuctionPage extends LitElement {
             .auction=${a}
             .players=${this.players}
             .purchases=${this.purchases}
+            .roleSaturation=${this.roleSaturation}
             @player-selected=${this.onOverviewSelect}
           ></auction-overview>
         </div>

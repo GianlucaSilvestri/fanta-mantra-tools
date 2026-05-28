@@ -257,8 +257,8 @@ export class AuctionRunning extends LitElement {
                     <span class="font-semibold text-fg w-9">${m.name}</span>
                     <div class="flex-1 h-0.5 bg-line rounded-full overflow-hidden">
                       <div
-                        class="h-full bg-accent rounded-full"
-                        style=${`width: ${Math.round(m.confidence * 100)}%`}
+                        class="h-full rounded-full"
+                        style=${`width: ${Math.round(m.confidence * 100)}%; background-color: hsl(${Math.round(m.confidence * 100) * 1.2}, 80%, 50%);`}
                       ></div>
                     </div>
                     <span class="text-fg-muted tabular-nums w-9 text-right">

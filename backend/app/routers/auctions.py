@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, literal, select, update
+from sqlalchemy import delete, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -17,6 +17,7 @@ from backend.app.models import (
     AuctionStatus,
     AuctionTeam,
     AuctionType,
+    MantraRole,
     Player,
 )
 from backend.app.services.autofill_evaluations import compute_autofill_evaluations
@@ -1399,5 +1400,108 @@ def get_module_predictions(auction_id: int) -> dict:
                     ],
                 }
                 for t in teams
+            ],
+        }
+
+
+@router.get("/{auction_id}/role-saturation")
+def get_role_saturation(auction_id: int) -> dict:
+    """Per-role market-saturation totals.
+
+    For each Mantra role, returns the sum of the user's evaluations
+    across every evaluated player whose `mantra_roles` contains the
+    role (``evaluated_total``), and the same sum restricted to players
+    already sold in `auction_purchases` (``sold_total``). A player
+    with multiple roles contributes to each role independently — the
+    auctioneer thinks per-role, not per-player.
+
+    Totals are in the **base-1000 stored unit** (same scale as
+    `AuctionPlayer.evaluation`). The frontend only uses the ratio.
+
+    Only meaningful once the auction has frozen the player pool, so
+    INITIAL is rejected — same gate as the other live-auction
+    endpoints (module-predictions, buyer-interest).
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(
+                status_code=404, detail=f"auction {auction_id} not found"
+            )
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; role saturation is "
+                    f"only available once IN_PROGRESS"
+                ),
+            )
+
+        # One row per (role) for this auction. Players with multiple
+        # roles are unnested so each role gets credit. The LEFT JOIN
+        # on auction_purchases lets the CASE pick up "sold" rows
+        # without dropping the "still available" ones from the
+        # denominator.
+        # Two metrics per role in one pass:
+        #  - evaluated_total / sold_total: credits the user evaluated for
+        #    the role, and how many of those credits have been spent (this
+        #    is what drives the saturation %, hence the eval>0 filter
+        #    inside the CASEs).
+        #  - players_total / players_sold: raw player counts in the pool,
+        #    independent of whether the user evaluated them — surfaces
+        #    overall market progress for the role.
+        rows = session.execute(
+            text(
+                """
+                SELECT role::text AS role,
+                       COUNT(*) AS players_total,
+                       COALESCE(SUM(CASE WHEN pur.player_id IS NOT NULL
+                                         THEN 1 ELSE 0 END), 0)
+                         AS players_sold,
+                       COALESCE(SUM(CASE WHEN ap.evaluation IS NOT NULL
+                                          AND ap.evaluation > 0
+                                         THEN ap.evaluation ELSE 0 END), 0)
+                         AS evaluated_total,
+                       COALESCE(SUM(CASE WHEN ap.evaluation IS NOT NULL
+                                          AND ap.evaluation > 0
+                                          AND pur.player_id IS NOT NULL
+                                         THEN ap.evaluation ELSE 0 END), 0)
+                         AS sold_total
+                FROM auction_players ap
+                CROSS JOIN LATERAL unnest(ap.mantra_roles) AS role
+                LEFT JOIN auction_purchases pur
+                       ON pur.auction_id = ap.auction_id
+                      AND pur.player_id  = ap.player_id
+                WHERE ap.auction_id = :aid
+                GROUP BY role
+                """
+            ),
+            {"aid": auction_id},
+        ).all()
+
+        by_role: dict[str, dict[str, int]] = {
+            row.role: {
+                "players_total": int(row.players_total),
+                "players_sold": int(row.players_sold),
+                "evaluated_total": int(row.evaluated_total),
+                "sold_total": int(row.sold_total),
+            }
+            for row in rows
+        }
+
+        # Always emit all 12 roles in canonical enum order so the
+        # frontend can render a stable grid even when some roles
+        # have no players in this auction.
+        empty = {
+            "players_total": 0,
+            "players_sold": 0,
+            "evaluated_total": 0,
+            "sold_total": 0,
+        }
+        return {
+            "auction_id": auction_id,
+            "roles": [
+                {"role": r.value, **by_role.get(r.value, empty)}
+                for r in MantraRole
             ],
         }

@@ -131,6 +131,19 @@ export interface BuyerInterestResponse {
   teams: BuyerInterestTeam[];
 }
 
+export interface RoleSaturationRow {
+  role: string;
+  players_total: number;
+  players_sold: number;
+  evaluated_total: number;
+  sold_total: number;
+}
+
+export interface RoleSaturationResponse {
+  auction_id: number;
+  roles: RoleSaturationRow[];
+}
+
 // GK marker (matches backend GK_ROLE = "Por").
 export const GK_ROLE = "Por";
 
