@@ -10,6 +10,9 @@ import {
   toAuctionCredits,
   type Auction,
   type AuctionStatus,
+  type BuyerInterestResponse,
+  type ModulePrediction,
+  type ModulePredictionsResponse,
   type PlayerRow,
   type Purchase,
 } from "../auction-shared";
@@ -61,6 +64,7 @@ export class AuctionPage extends LitElement {
   @state() private viewDialogOpen = false;
   @state() private players: PlayerRow[] = [];
   @state() private purchases: Purchase[] = [];
+  @state() private modulePredictions: Record<number, ModulePrediction[]> = {};
   @state() private terminating = false;
   @state() private terminateError = "";
 
@@ -73,6 +77,11 @@ export class AuctionPage extends LitElement {
   @state() private buyPrice = "";
   @state() private buyBusy = false;
   @state() private buyError = "";
+
+  // Buyer-interest panel (per-team interest in the selected player).
+  @state() private buyerInterest: BuyerInterestResponse | null = null;
+  @state() private buyerInterestLoading = false;
+  @state() private buyerInterestError = "";
 
   // Derived state, recomputed in willUpdate so each render reads cached
   // arrays instead of re-scanning purchases/players for every getter call.
@@ -128,10 +137,15 @@ export class AuctionPage extends LitElement {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.auction = (await res.json()) as Auction;
       if (this.auction.status === "IN_PROGRESS") {
-        await Promise.all([this.loadPlayers(), this.loadPurchases()]);
+        await Promise.all([
+          this.loadPlayers(),
+          this.loadPurchases(),
+          this.loadModulePredictions(),
+        ]);
       } else {
         this.players = [];
         this.purchases = [];
+        this.modulePredictions = {};
         // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
         // call/buy selection so the UI doesn't render a buy form against
         // stale state.
@@ -160,12 +174,23 @@ export class AuctionPage extends LitElement {
     this.purchases = (await res.json()) as Purchase[];
   }
 
+  private async loadModulePredictions(): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/module-predictions`,
+    );
+    if (!res.ok) throw new Error(`/module-predictions HTTP ${res.status}`);
+    const data = (await res.json()) as ModulePredictionsResponse;
+    const next: Record<number, ModulePrediction[]> = {};
+    for (const t of data.teams) next[t.team_id] = t.modules;
+    this.modulePredictions = next;
+  }
+
   private onAuctionStarted = (): void => {
     void this.load();
   };
 
   private onPurchasesChanged = (): void => {
-    void this.loadPurchases();
+    void Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
   };
 
   private computeTerminateBlockers(): string[] {
@@ -250,6 +275,7 @@ export class AuctionPage extends LitElement {
     this.buyTeamId = "";
     this.buyPrice = "";
     this.buyError = "";
+    void this.loadBuyerInterest(p.id);
   }
 
   private clearSelection(): void {
@@ -259,6 +285,30 @@ export class AuctionPage extends LitElement {
     this.buyTeamId = "";
     this.buyPrice = "";
     this.buyError = "";
+    this.buyerInterest = null;
+    this.buyerInterestError = "";
+  }
+
+  private async loadBuyerInterest(playerId: number): Promise<void> {
+    this.buyerInterestLoading = true;
+    this.buyerInterestError = "";
+    this.buyerInterest = null;
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auctionId}/players/${playerId}/buyer-interest`,
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `HTTP ${res.status}`);
+      }
+      // Drop the result if the user picked a different player in the meantime.
+      if (this.selected?.id !== playerId) return;
+      this.buyerInterest = (await res.json()) as BuyerInterestResponse;
+    } catch (err) {
+      this.buyerInterestError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.buyerInterestLoading = false;
+    }
   }
 
   private async pickRandom(): Promise<void> {
@@ -309,7 +359,7 @@ export class AuctionPage extends LitElement {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
-      await this.loadPurchases();
+      await Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
       this.clearSelection();
     } catch (err) {
       this.buyError = err instanceof Error ? err.message : String(err);
@@ -551,6 +601,58 @@ export class AuctionPage extends LitElement {
         ${this.buyError
           ? html`<p class="text-danger text-[11px] m-0">${this.buyError}</p>`
           : nothing}
+        ${this.renderBuyerInterest()}
+      </div>
+    `;
+  }
+
+  private renderBuyerInterest() {
+    if (this.buyerInterestLoading) {
+      return html`<div class="text-[11px] text-fg-muted italic mt-1">
+        ${msg("Estimating buyer interest…")}
+      </div>`;
+    }
+    if (this.buyerInterestError) {
+      return html`<div class="text-[11px] text-danger mt-1">
+        ${msg(str`Interest: ${this.buyerInterestError}`)}
+      </div>`;
+    }
+    const bi = this.buyerInterest;
+    if (!bi || bi.teams.length === 0) return nothing;
+    return html`
+      <div class="mt-1 pt-2 border-t border-accent/20 flex flex-col gap-1">
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+            ${msg("Likely buyers")}
+          </span>
+          <span
+            class="text-[10px] text-fg-dim tabular-nums"
+            title=${msg(
+              str`Player market value ${bi.mv_scaled} cr · broadness ${Math.round(bi.broadness * 100)}%`,
+            )}
+          >${msg(str`mv ${bi.mv_scaled}`)}</span>
+        </div>
+        ${bi.teams.map(
+          (t) => html`
+            <div
+              class="flex items-center gap-2 text-[11px]"
+              title=${msg(
+                str`${t.team_name} · remaining ${t.remaining_credit} cr · afford ${Math.round(t.afford * 100)}%`,
+              )}
+            >
+              <span class="text-fg flex-1 truncate">${t.team_name}</span>
+              <div class="w-16 h-0.5 bg-line rounded-full overflow-hidden">
+                <div
+                  class="h-full bg-accent rounded-full"
+                  style=${`width: ${Math.round(t.confidence * 100)}%`}
+                ></div>
+              </div>
+              <span class="text-fg-muted tabular-nums w-8 text-right">
+                ${Math.round(t.confidence * 100)}%
+              </span>
+            </div>
+          `,
+        )}
       </div>
     `;
   }
@@ -685,6 +787,7 @@ export class AuctionPage extends LitElement {
             .auction=${a}
             .players=${this.players}
             .purchases=${this.purchases}
+            .modulePredictions=${this.modulePredictions}
             @purchases-changed=${this.onPurchasesChanged}
           ></auction-running>
         `;

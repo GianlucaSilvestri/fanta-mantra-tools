@@ -23,7 +23,7 @@ Everything runs in Docker via `docker-compose.yml`:
 ## Project files
 
 - `data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx` — **canonical source**. Original export from fantacalcio.it, season 2025/26. Sheets: `Tutti` (532 active players — the one we import), `Portieri`, `Difensori`, `Centrocampisti`, `Attaccanti`, `Ceduti` (131 transferred-out — intentionally NOT imported). Schema per sheet: `Id, R, RM, Nome, Squadra, Qt.A, Qt.I, Diff., Qt.A M, Qt.I M, Diff.M, FVM, FVM M`. Row 1 is a banner; the header is on row 2.
-- `rules.json` — Mantra role weights and the catalog of legal lineup modules.
+- Mantra game-rule reference data lives in the database (seeded by migration `0013`): `role_weights` (per-role offensive weight) and `lineup_modules` + `lineup_module_slots` (the 11 legal modules, each with 11 positional slots and an `allowed_roles` set). Models in `backend/app/models.py`.
 - `backend/app/` — FastAPI app: `main.py`, `config.py`, `db.py`, `models.py`, `routers/health.py`, `routers/players.py`, `routers/auctions.py`.
 - `backend/alembic/` — migrations.
 - `backend/scripts/import_players.py` — both a CLI and a library. Exposes `parse_players(source)` (path/bytes/file-like → `list[Player]`, raises on bad data) and `write_players(rows)` (TRUNCATE + INSERT in one transaction). The CLI just chains the two.
@@ -69,7 +69,7 @@ Two Postgres enums + four tables (defined in `backend/app/models.py`, migrations
 
 The xlsx columns we don't store: `Qt.A, Qt.I, Diff., Qt.I M, Diff.M, FVM`, and the `R` macro role (derivable from `mantra_roles`).
 
-Migrations so far: `0001_create_players_table`, `0002_team_to_varchar`, `0003_simplify_player_columns`, `0004_drop_user_market_value`, `0005_create_user_evaluations`, `0006_create_user_preferences`, `0007_simplify_user_evaluations`, `0008_auctions_refactor` (dropped the singleton `user_preferences` and the player-only-keyed `user_evaluations`; introduced the `auction` / `auction_teams` / `auction_evaluations` trio and the `auction_status` enum).
+Migrations so far: `0001_create_players_table`, `0002_team_to_varchar`, `0003_simplify_player_columns`, `0004_drop_user_market_value`, `0005_create_user_evaluations`, `0006_create_user_preferences`, `0007_simplify_user_evaluations`, `0008_auctions_refactor` (dropped the singleton `user_preferences` and the player-only-keyed `user_evaluations`; introduced the `auction` / `auction_teams` / `auction_evaluations` trio and the `auction_status` enum), `0013_create_rules_tables` (moved `rules.json` weights + modules catalogue into `role_weights` / `lineup_modules` / `lineup_module_slots` and removed the JSON file).
 
 Unknown MantraRole values in the xlsx still raise loudly (signals a real rule change — add the value to the enum + a new migration).
 
@@ -162,16 +162,16 @@ A player may have several roles. They are eligible for any slot whose accepted-r
 
 ## Weights and the "12 rule"
 
-Each role has an offensive weight (`rules.json -> weights`):
+Each role has an offensive weight (stored in the `role_weights` table; seeded by migration `0013`):
 
 ```
 Por=0  Dc=0  Dd=0  Ds=0  B=0  E=0  M=0
 C=1  W=2  T=2  A=3  Pc=4
 ```
 
-Every legal module in `rules.json -> modules` is calibrated so the **maximum total weight is exactly 12**. A slot expressed as e.g. `T/A/Pc` contributes the weight of whichever role you assign the player to in that slot.
+Every legal module in `lineup_modules` (with its slots in `lineup_module_slots.allowed_roles`) is calibrated so the **maximum total weight is exactly 12**. A slot whose `allowed_roles` is e.g. `{T, A, Pc}` contributes the weight of whichever role you assign the player to in that slot.
 
-Verified for all 11 modules in `rules.json`:
+Verified for all 11 modules:
 
 | Module | Max weight |
 |--------|------------|
@@ -187,22 +187,35 @@ Verified for all 11 modules in `rules.json`:
 | 4411   | 12 |
 | 4231   | 12 |
 
-Any new module added to `rules.json` MUST also max out at 12 — treat this as an invariant and check it before merging changes.
+Any new module added (via a fresh migration that inserts into `lineup_modules` + `lineup_module_slots`) MUST also max out at 12 — treat this as an invariant and check it before merging changes.
+
+## Auctioneer heuristic: max-weight slot assignment
+
+When a `lineup_module_slots.allowed_roles` set contains more than one role, an auctioneer will (rationally) assign the player to the **highest-weighted role they can play**, because every weight point is offensive output. So a player with roles `{A, Pc}` placed in a `{T, A, Pc}` slot is counted as `Pc` (weight 4), not `A` (weight 3) or `T` (weight 2). This is exactly the same assignment rule that makes each module's max-weight lineup sum to 12 (see the table above).
+
+Consequence for **insight/scoring features**: when valuing a player against a module — or estimating how many lineup-points a team's roster can produce — compute the slot's contribution as `max(role_weights.weight FOR role IN player.mantra_roles ∩ allowed_roles)`, not the average or the player's "primary" role. This is the assumption every other auctioneer in the league is making, so any tooling that recommends bids, ranks players, or projects team strength must agree with it.
+
+### Exception: module-intent prediction inverts the convention
+
+The module-prediction service (`backend/app/services/module_predictions.py`, exposed via `GET /auctions/{id}/module-predictions`) is **prediction-specific** and inverts the convention in two places. Future scoring/eligibility/strength features should still follow the max-weight rule above.
+
+1. **Players are reduced to their lowest-weight role(s)**. A W/A is treated as a W (ties kept, e.g. Dd/Dc stays {Dd, Dc} since both are weight 0). Rationale: empirically, buyers acquire a W/A intending to play them as a W; counting them as an A would falsely pull the prediction toward A-heavy modules the buyer isn't building.
+2. **Each slot's contribution is scaled by a fit factor** `fit = player_weight / slot_max_weight` (1.0 when both are zero). Rationale: an A/Pc slot's "true demand" is for the Pc (weight 4); putting an A there is the fallback. Without scaling, an A player in an A/Pc slot would tie with the same A in a T/A slot, so any module with at least one A-eligible slot would score identically — masking the fact that the buyer's A is a better fit for explicit-A modules. With scaling: A in A/Pc contributes `price × (1 + 3 × 0.75) = price × 3.25`; A in T/A contributes `price × (1 + 3 × 1.0) = price × 4`.
 
 ## Lineup-eligibility rules
 
 A lineup is **legal** when:
 
-1. The module name is one of the entries in `rules.json -> modules`.
-2. Each of the 11 slots is filled by a distinct player.
-3. The player assigned to a slot has at least one role in that slot's accepted-role set (slots are written `Role1/Role2/...`).
-4. The chosen role-assignments sum to a total weight `<= 12` (the cap; the listed modules are tuned so 12 is reachable).
+1. The module name is one of the entries in `lineup_modules`.
+2. Each of the 11 slots (`lineup_module_slots.position` 1..11) is filled by a distinct player.
+3. The player assigned to a slot has at least one role in that slot's `allowed_roles` set.
+4. The chosen role-assignments sum to a total weight `<= 12` (the cap; the seeded modules are tuned so 12 is reachable).
 
-Slot order in the JSON is positional (Por first, then defenders, midfielders, attackers), but only the role constraints — not the order — affect legality.
+Slot `position` is positional (Por first, then defenders, midfielders, attackers), but only the role constraints — not the order — affect legality.
 
 ## Conventions for code in this repo
 
 - Treat `RM` from the xlsx as a list: split on `;`.
-- Treat slot specs in `rules.json` as a list: split on `/`.
-- Do not hard-code role lists or weights in Python — read them from `rules.json` so the source of truth stays single.
+- A slot's accepted roles live in `lineup_module_slots.allowed_roles` as a `mantra_role[]` — query them, don't re-parse strings.
+- Do not hard-code role lists or weights in Python — read them from the `role_weights` / `lineup_modules` / `lineup_module_slots` tables (models in `backend/app/models.py`) so the source of truth stays single.
 - Database-layer code lives in `backend/app/models.py`; never embed schema knowledge in scripts.

@@ -20,6 +20,11 @@ from backend.app.models import (
     Player,
 )
 from backend.app.services.autofill_evaluations import compute_autofill_evaluations
+from backend.app.services.module_predictions import (
+    compute_module_lineup,
+    compute_module_predictions,
+    compute_player_interest,
+)
 
 router = APIRouter(prefix="/auctions", tags=["auctions"])
 
@@ -1168,3 +1173,131 @@ def delete_purchase(auction_id: int, player_id: int) -> dict:
                 )
             session.delete(purchase)
     return {"deleted": player_id}
+
+
+@router.get("/{auction_id}/teams/{team_id}/modules/{module_name}/lineup")
+def get_module_lineup(auction_id: int, team_id: int, module_name: str) -> dict:
+    """Optimal player→slot assignment for one (team, module).
+
+    Exposes the lineup the module-prediction algorithm settles on so
+    the UI can render "this is why I'm recommending this module" — each
+    slot shows the player it picked, and the bench lists purchases the
+    algorithm left out.
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(
+                status_code=404, detail=f"auction {auction_id} not found"
+            )
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; module lineups are "
+                    f"only available once IN_PROGRESS"
+                ),
+            )
+
+        team = session.get(AuctionTeam, team_id)
+        if team is None or team.auction_id != auction_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"team {team_id} not found in auction {auction_id}",
+            )
+
+        try:
+            lineup = compute_module_lineup(session, auction, team_id, module_name)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        return {
+            "auction_id": auction_id,
+            "team_id": team_id,
+            "team_name": team.team_name,
+            **lineup,
+        }
+
+
+@router.get("/{auction_id}/players/{player_id}/buyer-interest")
+def get_buyer_interest(auction_id: int, player_id: int) -> dict:
+    """Per-team buying interest for one player.
+
+    Drives the "Likely buyers" panel in the selected-player card on the
+    auction page. Only available once the auction is IN_PROGRESS — the
+    INITIAL state has no purchases to base predictions on.
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(
+                status_code=404, detail=f"auction {auction_id} not found"
+            )
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; buyer interest is "
+                    f"only available once IN_PROGRESS"
+                ),
+            )
+
+        player = session.get(AuctionPlayer, (auction_id, player_id))
+        if player is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"player {player_id} is not in auction {auction_id}",
+            )
+
+        return compute_player_interest(session, auction, player)
+
+
+@router.get("/{auction_id}/module-predictions")
+def get_module_predictions(auction_id: int) -> dict:
+    """Confidence per lineup module each team is building toward.
+
+    Allowed while the auction is `IN_PROGRESS` or `TERMINATED` (purchases
+    only exist in those states). Empty teams get 1.0 for every module
+    (no signal → all modules equally plausible).
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(
+                status_code=404, detail=f"auction {auction_id} not found"
+            )
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; module predictions "
+                    f"are only available once IN_PROGRESS"
+                ),
+            )
+
+        per_team = compute_module_predictions(session, auction)
+
+        teams = list(
+            session.execute(
+                select(AuctionTeam)
+                .where(AuctionTeam.auction_id == auction_id)
+                .order_by(AuctionTeam.id)
+            ).scalars()
+        )
+        return {
+            "auction_id": auction_id,
+            "teams": [
+                {
+                    "team_id": t.id,
+                    "team_name": t.team_name,
+                    "modules": [
+                        {"name": name, "confidence": conf}
+                        for name, conf in sorted(
+                            per_team.get(t.id, {}).items(),
+                            key=lambda kv: (-kv[1], kv[0]),
+                        )
+                    ],
+                }
+                for t in teams
+            ],
+        }
