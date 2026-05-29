@@ -174,6 +174,9 @@ class AuctionPlayer(Base):
     fanta_evaluation: Mapped[int | None] = mapped_column(Integer)
     fanta_market_value: Mapped[int | None] = mapped_column(Integer)
     evaluation: Mapped[int | None] = mapped_column(Integer)
+    discarded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=func.false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )

@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
+  Ban,
   Check,
   ChevronRight,
   Eye,
@@ -14,6 +15,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Trash2,
@@ -43,6 +45,8 @@ const ICONS = {
   alert: AlertCircle as IconData,
   search: Search as IconData,
   eye: Eye as IconData,
+  ban: Ban as IconData,
+  "rotate-ccw": RotateCcw as IconData,
 } as const;
 
 export type IconName = keyof typeof ICONS;

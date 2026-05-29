@@ -80,6 +80,10 @@ export interface PlayerRow {
   fanta_evaluation: number | null;
   fanta_market_value: number | null;
   evaluation: number | null;
+  // Per-(auction, player) "removed from the active pool" flag. Only ever
+  // true on the IN_PROGRESS snapshot; the live table / INITIAL view
+  // always reports false.
+  discarded: boolean;
 }
 
 export interface Purchase {

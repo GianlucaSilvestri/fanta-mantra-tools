@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { localized, msg, str } from "@lit/localize";
 
+import { dragScroll } from "../drag-scroll";
 import { icon } from "../icons";
 import {
   BACKEND_URL,
@@ -59,6 +60,9 @@ export class AuctionRunning extends LitElement {
   // Static reference data, fetched once on mount.
   @state() private modules: LineupModule[] = [];
 
+  // Players removed from the active pool for this auction (restorable).
+  @state() private discardedPlayers: PlayerRow[] = [];
+
   // Module-lineup explainer dialog state.
   @state() private lineupDialogOpen = false;
   @state() private lineupTeamId: number | null = null;
@@ -91,6 +95,11 @@ export class AuctionRunning extends LitElement {
       changed.has("purchases")
     ) {
       this.teamAggregates = this.computeTeamAggregates();
+    }
+    if (changed.has("players")) {
+      this.discardedPlayers = this.players
+        .filter((p) => p.discarded)
+        .sort((a, b) => a.name.localeCompare(b.name));
     }
   }
 
@@ -154,6 +163,35 @@ export class AuctionRunning extends LitElement {
     this.dispatchEvent(
       new CustomEvent("purchases-changed", { bubbles: true, composed: true }),
     );
+  }
+
+  // Restoring a player only changes the active pool (the snapshot's
+  // `discarded` flags + role saturation), not purchases — a separate
+  // signal so the parent reloads the right slices.
+  private notifyPoolChanged(): void {
+    this.dispatchEvent(
+      new CustomEvent("pool-changed", { bubbles: true, composed: true }),
+    );
+  }
+
+  private async restorePlayer(player: PlayerRow): Promise<void> {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auction.id}/players/${player.id}/discard`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ discarded: false }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `HTTP ${res.status}`);
+      }
+      this.notifyPoolChanged();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
   }
 
   private startEdit(p: Purchase): void {
@@ -406,20 +444,57 @@ export class AuctionRunning extends LitElement {
     `;
   }
 
+  private renderDiscardedPanel() {
+    const discarded = this.discardedPlayers;
+    if (discarded.length === 0) return nothing;
+    return html`
+      <section class="mt-6">
+        <div class="rounded-xl border border-line bg-surface px-3 py-2.5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-warn">${icon("ban", { size: 14 })}</span>
+            <h2 class="text-[12px] font-bold uppercase tracking-wider text-fg-muted m-0">
+              ${msg(str`Discarded (${discarded.length})`)}
+            </h2>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            ${discarded.map(
+              (p) => html`
+                <div
+                  class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full border border-line bg-app text-[12px]"
+                >
+                  <span class="font-semibold text-fg-dim">${p.name}</span>
+                  ${renderRoleChips(p.mantra_roles)}
+                  <button
+                    type="button"
+                    @click=${() => this.restorePlayer(p)}
+                    aria-label=${msg(str`Restore ${p.name}`)}
+                    title=${msg("Restore to the active pool")}
+                    class="w-6 h-6 grid place-items-center rounded-full text-accent hover:bg-accent/10"
+                  >${icon("rotate-ccw", { size: 12 })}</button>
+                </div>
+              `,
+            )}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   override render() {
     const teams = this.auction.teams ?? [];
     return html`
       <section>
         <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Teams")}</h2>
-        <div class="flex gap-3 overflow-x-auto pb-2">
+        <div class="flex gap-3 overflow-x-auto pb-2" ${dragScroll()}>
           ${this.teamAggregates.map((agg) => this.renderTeamColumn(agg, teams))}
         </div>
       </section>
+      ${this.renderDiscardedPanel()}
       ${this.modules.length > 0
         ? html`
             <section class="mt-6">
               <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Modules")}</h2>
-              <div class="flex gap-3 overflow-x-auto pb-2">
+              <div class="flex gap-3 overflow-x-auto pb-2" ${dragScroll()}>
                 ${this.modules.map(
                   (m) => html`<module-pitch .module=${m}></module-pitch>`,
                 )}

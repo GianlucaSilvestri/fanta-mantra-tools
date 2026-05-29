@@ -24,6 +24,9 @@ def _serialize(player: Player, evaluation: int | None) -> dict:
         "fanta_evaluation": player.fanta_evaluation,
         "fanta_market_value": player.fanta_market_value,
         "evaluation": evaluation,
+        # The live `players` table / INITIAL view has no per-auction
+        # discard state; discards only exist on the IN_PROGRESS snapshot.
+        "discarded": False,
     }
 
 
@@ -36,6 +39,7 @@ def _serialize_snapshot(p: AuctionPlayer) -> dict:
         "fanta_evaluation": p.fanta_evaluation,
         "fanta_market_value": p.fanta_market_value,
         "evaluation": p.evaluation,
+        "discarded": p.discarded,
     }
 
 

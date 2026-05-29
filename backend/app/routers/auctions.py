@@ -100,6 +100,14 @@ class EvaluationPatch(BaseModel):
     evaluation: int | None = Field(default=None, ge=1)
 
 
+class DiscardPatch(BaseModel):
+    """Toggle the per-(auction, player) `discarded` flag."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    discarded: bool
+
+
 # Fields a PATCH cannot touch when the auction has moved past INITIAL.
 LOCKED_FIELDS_OUTSIDE_INITIAL = {
     "name",
@@ -1101,6 +1109,7 @@ def random_unsold_player(auction_id: int) -> dict:
         auction = _require_running_auction(session, auction_id)
         unsold = select(AuctionPlayer).where(
             AuctionPlayer.auction_id == auction.id,
+            AuctionPlayer.discarded.is_(False),
             ~select(AuctionPurchase.player_id)
             .where(
                 AuctionPurchase.auction_id == auction.id,
@@ -1144,18 +1153,19 @@ def create_purchase(auction_id: int, body: PurchaseCreate) -> dict:
                     detail=f"team {body.team_id} not found in auction {auction_id}",
                 )
 
-            in_pool = session.execute(
-                select(func.count())
-                .select_from(AuctionPlayer)
-                .where(
-                    AuctionPlayer.auction_id == auction_id,
-                    AuctionPlayer.player_id == body.player_id,
-                )
-            ).scalar_one()
-            if not in_pool:
+            pooled = session.get(AuctionPlayer, (auction_id, body.player_id))
+            if pooled is None:
                 raise HTTPException(
                     status_code=404,
                     detail=f"player {body.player_id} is not in auction {auction_id}",
+                )
+            if pooled.discarded:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"player {body.player_id} is discarded in auction "
+                        f"{auction_id}; restore them before buying"
+                    ),
                 )
 
             existing = session.get(AuctionPurchase, (auction_id, body.player_id))
@@ -1282,6 +1292,50 @@ def delete_purchase(auction_id: int, player_id: int) -> dict:
     return {"deleted": player_id}
 
 
+@router.patch("/{auction_id}/players/{player_id}/discard")
+def patch_player_discard(
+    auction_id: int, player_id: int, body: DiscardPatch
+) -> dict:
+    """Toggle the `discarded` flag on a per-(auction, player) snapshot.
+
+    Setting `true` removes the player from the active pool (random
+    picker, role overview, purchase eligibility, role saturation);
+    `false` restores them. Only allowed IN_PROGRESS — the same lifecycle
+    gate as purchases. Refuses to discard a player already in
+    `auction_purchases` so a sold player can't quietly vanish.
+    """
+    with SessionLocal() as session:
+        with session.begin():
+            _require_running_auction(session, auction_id)
+            pooled = session.get(AuctionPlayer, (auction_id, player_id))
+            if pooled is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"player {player_id} is not in auction {auction_id}",
+                )
+            if body.discarded and not pooled.discarded:
+                already_sold = session.get(
+                    AuctionPurchase, (auction_id, player_id)
+                )
+                if already_sold is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"player {player_id} is already sold to team "
+                            f"{already_sold.team_id}; release the purchase "
+                            f"before discarding"
+                        ),
+                    )
+            pooled.discarded = body.discarded
+            session.flush()
+            session.refresh(pooled)
+            return {
+                "auction_id": pooled.auction_id,
+                "player_id": pooled.player_id,
+                "discarded": pooled.discarded,
+            }
+
+
 @router.get("/{auction_id}/teams/{team_id}/modules/{module_name}/lineup")
 def get_module_lineup(auction_id: int, team_id: int, module_name: str) -> dict:
     """Optimal player→slot assignment for one (team, module).
@@ -1354,6 +1408,14 @@ def get_buyer_interest(auction_id: int, player_id: int) -> dict:
             raise HTTPException(
                 status_code=404,
                 detail=f"player {player_id} is not in auction {auction_id}",
+            )
+        if player.discarded:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"player {player_id} is discarded in auction {auction_id}; "
+                    f"buyer interest is only computed for active players"
+                ),
             )
 
         return compute_player_interest(session, auction, player)
@@ -1473,6 +1535,7 @@ def get_role_saturation(auction_id: int) -> dict:
                        ON pur.auction_id = ap.auction_id
                       AND pur.player_id  = ap.player_id
                 WHERE ap.auction_id = :aid
+                  AND ap.discarded = false
                 GROUP BY role
                 """
             ),

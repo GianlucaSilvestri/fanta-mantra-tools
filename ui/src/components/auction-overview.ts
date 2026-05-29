@@ -87,6 +87,7 @@ export class AuctionOverview extends LitElement {
       const candidates = this.players.filter(
         (p) =>
           !sold.has(p.id) &&
+          !p.discarded &&
           p.mantra_roles.includes(role) &&
           (p.evaluation ?? 0) > 0,
       );

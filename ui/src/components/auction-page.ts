@@ -214,6 +214,32 @@ export class AuctionPage extends LitElement {
     void this.refreshAfterPurchaseChange();
   };
 
+  // Discarding/restoring a player changes the active pool: the snapshot's
+  // `discarded` flags (players list) and the per-role saturation both
+  // shift. Purchases and module predictions are unaffected.
+  private refreshAfterPoolChange(): Promise<unknown> {
+    return Promise.all([this.loadPlayers(), this.loadRoleSaturation()]);
+  }
+
+  private async patchDiscard(
+    playerId: number,
+    discarded: boolean,
+  ): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/players/${playerId}/discard`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ discarded }),
+      },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new Error(data.detail ?? `HTTP ${res.status}`);
+    }
+    await this.refreshAfterPoolChange();
+  }
+
   private computeTerminateBlockers(): string[] {
     const a = this.auction;
     if (!a || a.status !== "IN_PROGRESS") return [];
@@ -285,7 +311,12 @@ export class AuctionPage extends LitElement {
     if (!q) return [];
     const sold = new Set(this.purchases.map((p) => p.player_id));
     return this.players
-      .filter((p) => !sold.has(p.id) && p.name.toLowerCase().includes(q))
+      .filter(
+        (p) =>
+          !sold.has(p.id) &&
+          !p.discarded &&
+          p.name.toLowerCase().includes(q),
+      )
       .slice(0, 12);
   }
 
@@ -381,6 +412,30 @@ export class AuctionPage extends LitElement {
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
       await this.refreshAfterPurchaseChange();
+      this.clearSelection();
+    } catch (err) {
+      this.buyError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.buyBusy = false;
+    }
+  }
+
+  private async discardSelected(): Promise<void> {
+    if (!this.selected) return;
+    const { id: playerId, name } = this.selected;
+    if (
+      !confirm(
+        msg(
+          str`Discard ${name}? They'll be removed from the active pool — you can restore them later.`,
+        ),
+      )
+    ) {
+      return;
+    }
+    this.buyBusy = true;
+    this.buyError = "";
+    try {
+      await this.patchDiscard(playerId, true);
       this.clearSelection();
     } catch (err) {
       this.buyError = err instanceof Error ? err.message : String(err);
@@ -663,6 +718,14 @@ export class AuctionPage extends LitElement {
           >
             ${this.buyBusy ? msg("…") : msg("Buy")}
           </button>
+          <button
+            type="button"
+            ?disabled=${this.buyBusy}
+            @click=${() => this.discardSelected()}
+            aria-label=${msg("Discard player")}
+            title=${msg("Discard — remove from the active pool (reversible)")}
+            class="shrink-0 w-8 h-8 grid place-items-center rounded text-warn border border-line hover:bg-warn/10 hover:border-warn/40 disabled:opacity-40 disabled:cursor-not-allowed"
+          >${icon("ban", { size: 14 })}</button>
         </div>
         ${this.buyError
           ? html`<p class="text-danger text-[11px] m-0">${this.buyError}</p>`
@@ -847,6 +910,10 @@ export class AuctionPage extends LitElement {
     if (detail?.player) this.selectPlayer(detail.player);
   };
 
+  private onPoolChanged = (): void => {
+    void this.refreshAfterPoolChange();
+  };
+
   private renderCenter(a: Auction) {
     switch (a.status) {
       case "INITIAL":
@@ -863,6 +930,7 @@ export class AuctionPage extends LitElement {
             .purchases=${this.purchases}
             .modulePredictions=${this.modulePredictions}
             @purchases-changed=${this.onPurchasesChanged}
+            @pool-changed=${this.onPoolChanged}
           ></auction-running>
         `;
       case "TERMINATED":
