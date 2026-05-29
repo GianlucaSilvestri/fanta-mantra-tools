@@ -2,7 +2,12 @@ import { html, type TemplateResult } from "lit";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowDownRight,
   ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
+  Ban,
   Check,
   ChevronRight,
   Eye,
@@ -10,6 +15,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Trash2,
@@ -27,7 +33,11 @@ const ICONS = {
   x: X as IconData,
   plus: Plus as IconData,
   play: Play as IconData,
+  "arrow-up": ArrowUp as IconData,
+  "arrow-up-right": ArrowUpRight as IconData,
   "arrow-right": ArrowRight as IconData,
+  "arrow-down-right": ArrowDownRight as IconData,
+  "arrow-down": ArrowDown as IconData,
   chevron: ChevronRight as IconData,
   upload: Upload as IconData,
   file: File as IconData,
@@ -35,6 +45,8 @@ const ICONS = {
   alert: AlertCircle as IconData,
   search: Search as IconData,
   eye: Eye as IconData,
+  ban: Ban as IconData,
+  "rotate-ccw": RotateCcw as IconData,
 } as const;
 
 export type IconName = keyof typeof ICONS;

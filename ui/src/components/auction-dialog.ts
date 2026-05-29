@@ -13,6 +13,7 @@ type AuctionType = "CALL" | "RANDOM";
 interface Team {
   id: number;
   team_name: string;
+  is_my_team: boolean;
 }
 
 interface Auction {
@@ -80,6 +81,9 @@ export class AuctionDialog extends LitElement {
   @state() private newTeams: string[] = [""];
   @state() private savedTeams: Team[] = [];
   @state() private newTeamDraft = "";
+  // Create mode: index into `newTeams` for the team marked as mine.
+  // null until the user picks one — submission is blocked while null.
+  @state() private myTeamIndex: number | null = null;
   @state() private busy = false;
   @state() private message = "";
   @state() private messageKind: "err" | "ok" | "busy" = "ok";
@@ -121,10 +125,12 @@ export class AuctionDialog extends LitElement {
       };
       this.savedTeams = a.teams ?? [];
       this.newTeams = [];
+      this.myTeamIndex = null;
     } else {
       this.form = { ...DEFAULT_FORM };
       this.savedTeams = [];
       this.newTeams = [""];
+      this.myTeamIndex = null;
     }
   }
 
@@ -146,8 +152,18 @@ export class AuctionDialog extends LitElement {
 
   private addNewTeamSlot(): void {
     if (!this.newTeamDraft.trim()) return;
-    const next = [...this.newTeams.filter((t) => t.trim()), this.newTeamDraft.trim()];
+    // Re-anchor myTeamIndex after dropping blank slots, since
+    // .filter((t) => t.trim()) reindexes the array.
+    const draft = this.newTeamDraft.trim();
+    const keptWithIdx = this.newTeams
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => t.trim().length > 0);
+    const remapped = new Map(keptWithIdx.map(({ i }, newIdx) => [i, newIdx]));
+    const next = [...keptWithIdx.map(({ t }) => t), draft];
     if (next.length > this.form.number_of_auctioners) return;
+    if (this.myTeamIndex !== null) {
+      this.myTeamIndex = remapped.get(this.myTeamIndex) ?? null;
+    }
     this.newTeams = next;
     this.newTeamDraft = "";
   }
@@ -155,7 +171,40 @@ export class AuctionDialog extends LitElement {
   private removeNewTeamSlot(idx: number): void {
     const next = this.newTeams.slice();
     next.splice(idx, 1);
+    if (this.myTeamIndex !== null) {
+      if (this.myTeamIndex === idx) this.myTeamIndex = null;
+      else if (this.myTeamIndex > idx) this.myTeamIndex -= 1;
+    }
     this.newTeams = next;
+  }
+
+  private setMyTeamIndex(idx: number): void {
+    this.myTeamIndex = idx;
+  }
+
+  private async setSavedTeamAsMine(teamId: number): Promise<void> {
+    if (!this.auction) return;
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auction.id}/teams/${teamId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ is_my_team: true }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `HTTP ${res.status}`);
+      }
+      this.savedTeams = this.savedTeams.map((t) => ({
+        ...t,
+        is_my_team: t.id === teamId,
+      }));
+    } catch (err) {
+      this.messageKind = "err";
+      this.message = err instanceof Error ? err.message : String(err);
+    }
   }
 
   private async addSavedTeam(): Promise<void> {
@@ -183,7 +232,14 @@ export class AuctionDialog extends LitElement {
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
       const team = (await res.json()) as Team;
-      this.savedTeams = [...this.savedTeams, team];
+      // Backend orders teams with is_my_team first; mirror that in the
+      // dialog so the "mine" row stays anchored at the top.
+      const merged = [...this.savedTeams, team];
+      merged.sort((a, b) => {
+        if (a.is_my_team !== b.is_my_team) return a.is_my_team ? -1 : 1;
+        return a.id - b.id;
+      });
+      this.savedTeams = merged;
       this.newTeamDraft = "";
     } catch (err) {
       this.messageKind = "err";
@@ -229,9 +285,15 @@ export class AuctionDialog extends LitElement {
 
     try {
       if (this.mode === "create") {
-        const teams = [...this.newTeams, this.newTeamDraft]
-          .map((t) => t.trim())
-          .filter((t) => t.length > 0);
+        // Build the team list AND a parallel list of which kept indexes
+        // correspond to which original myTeamIndex, so we can remap.
+        const rawWithIdx = [
+          ...this.newTeams.map((t, i) => ({ t, i })),
+          { t: this.newTeamDraft, i: this.newTeams.length },
+        ]
+          .map(({ t, i }) => ({ t: t.trim(), i }))
+          .filter(({ t }) => t.length > 0);
+        const teams = rawWithIdx.map(({ t }) => t);
         if (new Set(teams).size !== teams.length) {
           throw new Error(msg("Team names must be unique"));
         }
@@ -241,6 +303,16 @@ export class AuctionDialog extends LitElement {
               str`Cannot have more than ${this.form.number_of_auctioners} teams (auctioners cap)`,
             ),
           );
+        }
+        let myTeamIndex: number | null = null;
+        if (this.myTeamIndex !== null) {
+          const found = rawWithIdx.findIndex(
+            ({ i }) => i === this.myTeamIndex,
+          );
+          if (found >= 0) myTeamIndex = found;
+        }
+        if (myTeamIndex === null) {
+          throw new Error(msg("Pick which team is yours before saving"));
         }
         const body = {
           name: this.form.name.trim(),
@@ -252,6 +324,7 @@ export class AuctionDialog extends LitElement {
           credits_per_team: this.form.credits_per_team,
           number_of_goalkeepers: this.form.number_of_goalkeepers,
           teams,
+          my_team_index: myTeamIndex,
         };
         const res = await fetch(`${BACKEND_URL}/auctions`, {
           method: "POST",
@@ -340,6 +413,9 @@ export class AuctionDialog extends LitElement {
               </div>`
             : nothing}
         </div>
+        <div class="text-[11px] text-fg-muted mb-1.5">
+          ${msg("Pick which team is yours — required to start the auction.")}
+        </div>
         <div
           class="flex flex-col gap-1.5 bg-app border border-line rounded p-2.5 max-h-[240px] overflow-y-auto"
         >
@@ -348,6 +424,20 @@ export class AuctionDialog extends LitElement {
               <div
                 class="flex items-center gap-2 bg-surface rounded px-2 py-1.5"
               >
+                <label
+                  class="inline-flex items-center gap-1 text-[11px] text-fg-dim cursor-pointer select-none shrink-0"
+                  title=${msg("Mark this as your team")}
+                >
+                  <input
+                    type="radio"
+                    name="my-team-create"
+                    .checked=${this.myTeamIndex === i}
+                    ?disabled=${!t.trim()}
+                    @change=${() => this.setMyTeamIndex(i)}
+                    style="accent-color: var(--color-accent);"
+                  />
+                  ${msg("mine")}
+                </label>
                 <input
                   .value=${t}
                   @input=${(e: Event) =>
@@ -420,6 +510,19 @@ export class AuctionDialog extends LitElement {
                   <div
                     class="flex items-center gap-2 bg-surface rounded px-2 py-1.5"
                   >
+                    <label
+                      class="inline-flex items-center gap-1 text-[11px] text-fg-dim cursor-pointer select-none shrink-0"
+                      title=${msg("Mark this as your team")}
+                    >
+                      <input
+                        type="radio"
+                        name="my-team-edit"
+                        .checked=${t.is_my_team}
+                        @change=${() => this.setSavedTeamAsMine(t.id)}
+                        style="accent-color: var(--color-accent);"
+                      />
+                      ${msg("mine")}
+                    </label>
                     <span class="flex-1 text-[13px]">${t.team_name}</span>
                     <button
                       type="button"
@@ -643,7 +746,11 @@ export class AuctionDialog extends LitElement {
             >${msg("Cancel")}</button>
             <button
               type="submit"
-              ?disabled=${this.busy}
+              ?disabled=${this.busy ||
+              (this.mode === "create" && this.myTeamIndex === null)}
+              title=${this.mode === "create" && this.myTeamIndex === null
+                ? msg("Pick which team is yours before saving")
+                : ""}
               class="px-3.5 py-2 rounded text-[13px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22] hover:border-[#19ff22] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               ${this.mode === "create" ? msg("Create auction") : msg("Save changes")}

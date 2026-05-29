@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Integer,
@@ -129,6 +130,9 @@ class AuctionTeam(Base):
         Integer, ForeignKey("auction.id", ondelete="CASCADE"), nullable=False
     )
     team_name: Mapped[str] = mapped_column(Text, nullable=False)
+    is_my_team: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=func.false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
@@ -170,6 +174,9 @@ class AuctionPlayer(Base):
     fanta_evaluation: Mapped[int | None] = mapped_column(Integer)
     fanta_market_value: Mapped[int | None] = mapped_column(Integer)
     evaluation: Mapped[int | None] = mapped_column(Integer)
+    discarded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=func.false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )

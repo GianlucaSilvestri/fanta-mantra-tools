@@ -189,11 +189,6 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
   <source>Start auction</source>
   <target>Avvia asta</target>
 </trans-unit>
-<trans-unit id="hb730ad2ec7b5671e">
-  <source>All three indicators must be in the
-              <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> zone to start.</source>
-  <target>Tutti e tre gli indicatori devono essere nella zona <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> per avviare.</target>
-</trans-unit>
 <trans-unit id="s8c1fa1bfdd33fb73">
   <source>last save failed</source>
   <target>ultimo salvataggio fallito</target>
@@ -304,15 +299,6 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
 <trans-unit id="sa6d63ff474ed0ca3">
   <source>unknown error</source>
   <target>errore sconosciuto</target>
-</trans-unit>
-<trans-unit id="s5064a035d1aeab5c">
-  <source>Live auction — coming soon</source>
-  <target>Asta dal vivo — prossimamente</target>
-</trans-unit>
-<trans-unit id="hff429a33d5adb0b0">
-  <source>This screen will host the live bidding interface for
-          <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/>. Designs to be defined.</source>
-  <target>Questa schermata ospiterà l'interfaccia delle offerte dal vivo per <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/>. Design da definire.</target>
 </trans-unit>
 <trans-unit id="s12696d696da36de9">
   <source>Continue setup</source>
@@ -479,6 +465,346 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
 <trans-unit id="sb98fdf423ff4086a">
   <source>or click to browse — .xlsx only</source>
   <target>oppure clicca per cercarlo — solo .xlsx</target>
+</trans-unit>
+<trans-unit id="s70ea6595551323d5">
+  <source>Pick which team is yours before saving</source>
+  <target>Scegli quale squadra è la tua prima di salvare</target>
+</trans-unit>
+<trans-unit id="sb167ccda40068c50">
+  <source>Pick which team is yours — required to start the auction.</source>
+  <target>Scegli quale squadra è la tua — necessario per avviare l'asta.</target>
+</trans-unit>
+<trans-unit id="s13f598e60bbc05f4">
+  <source>Mark this as your team</source>
+  <target>Segna questa come la tua squadra</target>
+</trans-unit>
+<trans-unit id="sda4e15a2a78ede96">
+  <source>mine</source>
+  <target>mia</target>
+</trans-unit>
+<trans-unit id="s2c0d81eba6c19516">
+  <source>Auction type</source>
+  <target>Tipo di asta</target>
+</trans-unit>
+<trans-unit id="sdfa47b9ce9ac1889">
+  <source>Call</source>
+  <target>Chiamata</target>
+</trans-unit>
+<trans-unit id="s8fb7a126449e0462">
+  <source>Random</source>
+  <target>Casuale</target>
+</trans-unit>
+<trans-unit id="s057145bded62b35c">
+  <source>Autofill will REPLACE all evaluations for "<x id="0" equiv-text="${this.auction.name}"/>". Continue?</source>
+  <target>Il riempimento automatico SOSTITUIRÀ tutte le valutazioni per "<x id="0" equiv-text="${this.auction.name}"/>". Continuare?</target>
+</trans-unit>
+<trans-unit id="s2851ca2db5a53321">
+  <source>Autofilling…</source>
+  <target>Riempimento automatico…</target>
+</trans-unit>
+<trans-unit id="s7e7c899843344561">
+  <source>Autofilled 1 evaluation.</source>
+  <target>Riempita automaticamente 1 valutazione.</target>
+</trans-unit>
+<trans-unit id="s3004e300854284e7">
+  <source>Autofilled <x id="0" equiv-text="${n}"/> evaluations.</source>
+  <target>Riempite automaticamente <x id="0" equiv-text="${n}"/> valutazioni.</target>
+</trans-unit>
+<trans-unit id="sc19eef336bc51866">
+  <source>Teams ready</source>
+  <target>Squadre pronte</target>
+</trans-unit>
+<trans-unit id="s08b05d07b5566bef">
+  <source>ok</source>
+  <target>ok</target>
+</trans-unit>
+<trans-unit id="sa9b4194ecfe6716d">
+  <source>under</source>
+  <target>sotto</target>
+</trans-unit>
+<trans-unit id="s70b2a928d2cc5f17">
+  <source>Your team</source>
+  <target>La tua squadra</target>
+</trans-unit>
+<trans-unit id="see5abe6ddf89e89e">
+  <source>not picked</source>
+  <target>non scelta</target>
+</trans-unit>
+<trans-unit id="h455b096f59a050c7">
+  <source>All indicators (credits, players, goalkeepers,
+              teams, your team) must be
+              <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> to start.</source>
+  <target>Tutti gli indicatori (crediti, giocatori, portieri,
+              squadre, la tua squadra) devono essere
+              <x id="0" equiv-text="&lt;span class=&quot;text-accent font-bold&quot;&gt;"/>ok<x id="1" equiv-text="&lt;/span&gt;"/> per iniziare.</target>
+</trans-unit>
+<trans-unit id="s68a167426cc2defb">
+  <source>Autofill</source>
+  <target>Riempimento automatico</target>
+</trans-unit>
+<trans-unit id="s6f6292b3f9a8755b">
+  <source>— none —</source>
+  <target>— nessuno —</target>
+</trans-unit>
+<trans-unit id="s7eb787067c86ff09">
+  <source>Players in this role are being sold well below your evaluations — great time to buy.</source>
+  <target>I giocatori in questo ruolo vengono venduti ben al di sotto delle tue valutazioni — ottimo momento per comprare.</target>
+</trans-unit>
+<trans-unit id="sa2e2708c5a292ffd">
+  <source>Players in this role are being sold slightly below your evaluations — modest bargains.</source>
+  <target>I giocatori in questo ruolo vengono venduti leggermente al di sotto delle tue valutazioni — affari modesti.</target>
+</trans-unit>
+<trans-unit id="s28fd75e67fe1e200">
+  <source>Players in this role are being sold roughly at your evaluations — fair market.</source>
+  <target>I giocatori in questo ruolo vengono venduti all'incirca alle tue valutazioni — mercato equo.</target>
+</trans-unit>
+<trans-unit id="sf1ab10f058f61198">
+  <source>Players in this role are being sold slightly above your evaluations — modestly overpriced.</source>
+  <target>I giocatori in questo ruolo vengono venduti leggermente al di sopra delle tue valutazioni — leggermente sopravvalutati.</target>
+</trans-unit>
+<trans-unit id="s908b71ad025a3821">
+  <source>Players in this role are being sold well above your evaluations — expensive market.</source>
+  <target>I giocatori in questo ruolo vengono venduti ben al di sopra delle tue valutazioni — mercato costoso.</target>
+</trans-unit>
+<trans-unit id="scd39cb4d7e9cb74a">
+  <source>No evaluated players in this role have been bought yet — no signal.</source>
+  <target>Nessun giocatore valutato in questo ruolo è stato ancora acquistato — nessun segnale.</target>
+</trans-unit>
+<trans-unit id="s514b457d6890d693">
+  <source>top 5</source>
+  <target>top 5</target>
+</trans-unit>
+<trans-unit id="s3e77b0a1ca31857a">
+  <source>no evaluated players for this role</source>
+  <target>nessun giocatore valutato per questo ruolo</target>
+</trans-unit>
+<trans-unit id="s5544ee9228dd3948">
+  <source>Players in this role already bought (<x id="0" equiv-text="${playersSold}"/>) out of the total in the auction pool (<x id="1" equiv-text="${playersTotal}"/>).</source>
+  <target>Giocatori in questo ruolo già acquistati (<x id="0" equiv-text="${playersSold}"/>) sul totale presente nel pool dell'asta (<x id="1" equiv-text="${playersTotal}"/>).</target>
+</trans-unit>
+<trans-unit id="s9c9b19b64b9858f6">
+  <source>Share of your evaluated credits for this role already spent (<x id="0" equiv-text="${soldTotal}"/> of <x id="1" equiv-text="${evalTotal}"/>). Green = market still wide open; red = nearly drained.</source>
+  <target>Quota dei tuoi crediti valutati per questo ruolo già spesa (<x id="0" equiv-text="${soldTotal}"/> di <x id="1" equiv-text="${evalTotal}"/>). Verde = mercato ancora ampiamente aperto; rosso = quasi esaurito.</target>
+</trans-unit>
+<trans-unit id="s32960386f34bc8a2">
+  <source>Terminate "<x id="0" equiv-text="${this.auction.name}"/>"? Purchases will be locked.</source>
+  <target>Terminare "<x id="0" equiv-text="${this.auction.name}"/>"? Gli acquisti verranno bloccati.</target>
+</trans-unit>
+<trans-unit id="sce485d22f0a89624">
+  <source>All teams meet the roster minimums.</source>
+  <target>Tutte le squadre soddisfano i minimi di rosa.</target>
+</trans-unit>
+<trans-unit id="sf01c4363ae71692b">
+  <source>Incomplete: <x id="0" equiv-text="${blockers[0]}"/></source>
+  <target>Incompleta: <x id="0" equiv-text="${blockers[0]}"/></target>
+</trans-unit>
+<trans-unit id="s7ef804ca7e157179">
+  <source><x id="0" equiv-text="${blockers.length}"/> teams incomplete</source>
+  <target><x id="0" equiv-text="${blockers.length}"/> squadre incomplete</target>
+</trans-unit>
+<trans-unit id="s9d6852b795f2dd71">
+  <source>Terminate auction</source>
+  <target>Termina asta</target>
+</trans-unit>
+<trans-unit id="s3c36d0aae6000e23">
+  <source>Terminating…</source>
+  <target>Terminazione…</target>
+</trans-unit>
+<trans-unit id="s191caa413358f037">
+  <source>Players already bought (<x id="0" equiv-text="${boughtPlayers}"/>) out of the minimum needed across all teams (<x id="1" equiv-text="${totalPlayers}"/>).</source>
+  <target>Giocatori già acquistati (<x id="0" equiv-text="${boughtPlayers}"/>) sul minimo necessario tra tutte le squadre (<x id="1" equiv-text="${totalPlayers}"/>).</target>
+</trans-unit>
+<trans-unit id="s2dfd8ba92e6c81c4">
+  <source>Credits spent across all teams (<x id="0" equiv-text="${spentCredits}"/>) out of the total auction budget (<x id="1" equiv-text="${totalCredits}"/>). Red = just started; green = nearly done.</source>
+  <target>Crediti spesi tra tutte le squadre (<x id="0" equiv-text="${spentCredits}"/>) sul budget totale dell'asta (<x id="1" equiv-text="${totalCredits}"/>). Rosso = appena iniziata; verde = quasi conclusa.</target>
+</trans-unit>
+<trans-unit id="s96f829c53246f943">
+  <source>Pick a random player</source>
+  <target>Scegli un giocatore casuale</target>
+</trans-unit>
+<trans-unit id="sc35986bfdbc048d9">
+  <source>Eval <x id="0" equiv-text="${scaledEval ?? &quot;—&quot;}"/></source>
+  <target>Val <x id="0" equiv-text="${scaledEval ?? &quot;—&quot;}"/></target>
+</trans-unit>
+<trans-unit id="scf68894b5e24b3a4">
+  <source>— team —</source>
+  <target>— squadra —</target>
+</trans-unit>
+<trans-unit id="seed76e8afe9f604a">
+  <source>Price</source>
+  <target>Prezzo</target>
+</trans-unit>
+<trans-unit id="saf439b4c85cb1e19">
+  <source>…</source>
+  <target>…</target>
+</trans-unit>
+<trans-unit id="s166a4319b11387ab">
+  <source>Buy</source>
+  <target>Compra</target>
+</trans-unit>
+<trans-unit id="sb8496b344308e76f">
+  <source>Estimating buyer interest…</source>
+  <target>Stima dell'interesse degli acquirenti…</target>
+</trans-unit>
+<trans-unit id="s4a73f1eef1515a9d">
+  <source>Interest: <x id="0" equiv-text="${this.buyerInterestError}"/></source>
+  <target>Interesse: <x id="0" equiv-text="${this.buyerInterestError}"/></target>
+</trans-unit>
+<trans-unit id="s9010ee1303cf52b7">
+  <source>Likely buyers</source>
+  <target>Acquirenti probabili</target>
+</trans-unit>
+<trans-unit id="s3e69d31cd267fbd7">
+  <source>Player market value <x id="0" equiv-text="${bi.mv_scaled}"/> cr · broadness <x id="1" equiv-text="${Math.round(bi.broadness * 100)}"/>%</source>
+  <target>Valore di mercato del giocatore <x id="0" equiv-text="${bi.mv_scaled}"/> cr · ampiezza <x id="1" equiv-text="${Math.round(bi.broadness * 100)}"/>%</target>
+</trans-unit>
+<trans-unit id="sc02fefa298ba7ba0">
+  <source>mv <x id="0" equiv-text="${bi.mv_scaled}"/></source>
+  <target>vm <x id="0" equiv-text="${bi.mv_scaled}"/></target>
+</trans-unit>
+<trans-unit id="sb889f9a753392731">
+  <source><x id="0" equiv-text="${t.team_name}"/> · remaining <x id="1" equiv-text="${t.remaining_credit}"/> cr · afford <x id="2" equiv-text="${Math.round(t.afford * 100)}"/>%</source>
+  <target><x id="0" equiv-text="${t.team_name}"/> · rimanenti <x id="1" equiv-text="${t.remaining_credit}"/> cr · capacità <x id="2" equiv-text="${Math.round(t.afford * 100)}"/>%</target>
+</trans-unit>
+<trans-unit id="s85fac12eaecb0a54">
+  <source>Use the button above to pick a player.</source>
+  <target>Usa il pulsante qui sopra per scegliere un giocatore.</target>
+</trans-unit>
+<trans-unit id="s383fab9ce1462b11">
+  <source>Search above to call a player.</source>
+  <target>Cerca qui sopra per chiamare un giocatore.</target>
+</trans-unit>
+<trans-unit id="s6f387f0459caabb0">
+  <source>Pick a team</source>
+  <target>Scegli una squadra</target>
+</trans-unit>
+<trans-unit id="sd470bcb183c6bf01">
+  <source>Price must be &gt;= 0</source>
+  <target>Il prezzo deve essere &gt;= 0</target>
+</trans-unit>
+<trans-unit id="s963e5ef1b1419dcf">
+  <source>Release <x id="0" equiv-text="${playerName}"/> back to the unsold pool?</source>
+  <target>Rilasciare <x id="0" equiv-text="${playerName}"/> nel pool degli invenduti?</target>
+</trans-unit>
+<trans-unit id="se35fe4c786737625">
+  <source>no evaluated purchases yet</source>
+  <target>nessun acquisto valutato finora</target>
+</trans-unit>
+<trans-unit id="s29f9d11233c07106">
+  <source>vs your evals: <x id="0" equiv-text="${diff &gt;= 0 ? &quot;+&quot; : &quot;&quot;}${diff}"/> cr (<x id="1" equiv-text="${agg.evalExpected}"/> expected, <x id="2" equiv-text="${agg.evalSpent}"/> paid)</source>
+  <target>rispetto alle tue valutazioni: <x id="0" equiv-text="${diff &gt;= 0 ? &quot;+&quot; : &quot;&quot;}${diff}"/> cr (<x id="1" equiv-text="${agg.evalExpected}"/> previsti, <x id="2" equiv-text="${agg.evalSpent}"/> pagati)</target>
+</trans-unit>
+<trans-unit id="sc86800b9d9f35717">
+  <source>This is your team</source>
+  <target>Questa è la tua squadra</target>
+</trans-unit>
+<trans-unit id="sb5617c19799ea15c">
+  <source>you</source>
+  <target>tu</target>
+</trans-unit>
+<trans-unit id="sf9e4f82a9578c4d4">
+  <source>P <x id="0" equiv-text="${agg.count}"/>/<x id="1" equiv-text="${this.auction.min_team_size}"/></source>
+  <target>G <x id="0" equiv-text="${agg.count}"/>/<x id="1" equiv-text="${this.auction.min_team_size}"/></target>
+</trans-unit>
+<trans-unit id="s958b68f03369968c">
+  <source>GK <x id="0" equiv-text="${agg.gks}"/>/<x id="1" equiv-text="${this.auction.number_of_goalkeepers}"/></source>
+  <target>P <x id="0" equiv-text="${agg.gks}"/>/<x id="1" equiv-text="${this.auction.number_of_goalkeepers}"/></target>
+</trans-unit>
+<trans-unit id="s18b2f546cd5bc065">
+  <source>spent <x id="0" equiv-text="${agg.spent}"/></source>
+  <target>spesi <x id="0" equiv-text="${agg.spent}"/></target>
+</trans-unit>
+<trans-unit id="s21d455c116e8e020">
+  <source>Show <x id="0" equiv-text="${m.name}"/> lineup for <x id="1" equiv-text="${t.team_name}"/></source>
+  <target>Mostra la formazione <x id="0" equiv-text="${m.name}"/> per <x id="1" equiv-text="${t.team_name}"/></target>
+</trans-unit>
+<trans-unit id="s6299fb4ffd9f1856">
+  <source>No players yet</source>
+  <target>Ancora nessun giocatore</target>
+</trans-unit>
+<trans-unit id="s091d3d07b5b3076f">
+  <source>OK</source>
+  <target>OK</target>
+</trans-unit>
+<trans-unit id="saf64154c86024d67">
+  <source>X</source>
+  <target>X</target>
+</trans-unit>
+<trans-unit id="s1cdeecda0baf365e">
+  <source>Release</source>
+  <target>Rilascia</target>
+</trans-unit>
+<trans-unit id="s3d45160c8fa41e0a">
+  <source>Modules</source>
+  <target>Moduli</target>
+</trans-unit>
+<trans-unit id="s8ddc136fe23a9220">
+  <source>Review evaluations — <x id="0" equiv-text="${this.auction.name}"/></source>
+  <target>Rivedi le valutazioni — <x id="0" equiv-text="${this.auction.name}"/></target>
+</trans-unit>
+<trans-unit id="se3dc944a2c312d7e">
+  <source>Review evaluations</source>
+  <target>Rivedi le valutazioni</target>
+</trans-unit>
+<trans-unit id="s2168ff37a3079a86">
+  <source><x id="0" equiv-text="${player.price}"/> cr</source>
+  <target><x id="0" equiv-text="${player.price}"/> cr</target>
+</trans-unit>
+<trans-unit id="s904fefb3d01cb2ae">
+  <source>empty</source>
+  <target>vuoto</target>
+</trans-unit>
+<trans-unit id="s880c4163ed3ff15f">
+  <source><x id="0" equiv-text="${placed}"/>/11 slots filled</source>
+  <target><x id="0" equiv-text="${placed}"/>/11 posizioni riempite</target>
+</trans-unit>
+<trans-unit id="sf71a11f3b2bec883">
+  <source>score <x id="0" equiv-text="${lineup.score}"/></source>
+  <target>punteggio <x id="0" equiv-text="${lineup.score}"/></target>
+</trans-unit>
+<trans-unit id="se390e11aacb7e294">
+  <source>Bench (<x id="0" equiv-text="${lineup.bench.length}"/>)</source>
+  <target>Panchina (<x id="0" equiv-text="${lineup.bench.length}"/>)</target>
+</trans-unit>
+<trans-unit id="s50616a14d9de9f31">
+  <source>Every purchase fits the lineup</source>
+  <target>Ogni acquisto si adatta alla formazione</target>
+</trans-unit>
+<trans-unit id="s635ab3ed75a4b7d3">
+  <source><x id="0" equiv-text="${this.lineup.team_name}"/> — <x id="1" equiv-text="${this.lineup.module_name}"/></source>
+  <target><x id="0" equiv-text="${this.lineup.team_name}"/> — <x id="1" equiv-text="${this.lineup.module_name}"/></target>
+</trans-unit>
+<trans-unit id="sbfdc0d581351aebb">
+  <source>Module <x id="0" equiv-text="${this.moduleName}"/></source>
+  <target>Modulo <x id="0" equiv-text="${this.moduleName}"/></target>
+</trans-unit>
+<trans-unit id="s08d8d804e3833fb0">
+  <source>Module lineup</source>
+  <target>Formazione del modulo</target>
+</trans-unit>
+<trans-unit id="sc325e02be0e84382">
+  <source>Discard player</source>
+  <target>Scarta giocatore</target>
+</trans-unit>
+<trans-unit id="sb34729360af774a8">
+  <source>Discard — remove from the active pool (reversible)</source>
+  <target>Scarta — rimuovi dal pool attivo (reversibile)</target>
+</trans-unit>
+<trans-unit id="s0a09a8f2d2469029">
+  <source>Discarded (<x id="0" equiv-text="${discarded.length}"/>)</source>
+  <target>Scartati (<x id="0" equiv-text="${discarded.length}"/>)</target>
+</trans-unit>
+<trans-unit id="s712e0c2901638007">
+  <source>Restore <x id="0" equiv-text="${p.name}"/></source>
+  <target>Ripristina <x id="0" equiv-text="${p.name}"/></target>
+</trans-unit>
+<trans-unit id="s82f924b5157e7055">
+  <source>Restore to the active pool</source>
+  <target>Ripristina nel pool attivo</target>
+</trans-unit>
+<trans-unit id="sc061a3826f1a8636">
+  <source>Discard <x id="0" equiv-text="${name}"/>? They'll be removed from the active pool — you can restore them later.</source>
+  <target>Scartare <x id="0" equiv-text="${name}"/>? Verrà rimosso dal pool attivo — potrai ripristinarlo in seguito.</target>
 </trans-unit>
 </body>
 </file>

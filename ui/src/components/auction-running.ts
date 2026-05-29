@@ -2,16 +2,21 @@ import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { localized, msg, str } from "@lit/localize";
 
+import { dragScroll } from "../drag-scroll";
 import { icon } from "../icons";
 import {
   BACKEND_URL,
   GK_ROLE,
+  PERFORMANCE_ICON,
+  performanceBucket,
   renderRoleChips,
   roleSortKey,
   ROLE_ORDER,
+  toAuctionCredits,
   type Auction,
   type LineupModule,
   type ModulePrediction,
+  type Performance,
   type PlayerRow,
   type Purchase,
   type Team,
@@ -25,6 +30,11 @@ interface TeamAggregate {
   count: number;
   gks: number;
   rows: { purchase: Purchase; player: PlayerRow | undefined }[];
+  // Sum of price and sum of expected eval (scaled to auction credits)
+  // — both restricted to purchases of players the user evaluated.
+  evalSpent: number;
+  evalExpected: number;
+  performance: Performance;
 }
 
 @customElement("auction-running")
@@ -49,6 +59,9 @@ export class AuctionRunning extends LitElement {
 
   // Static reference data, fetched once on mount.
   @state() private modules: LineupModule[] = [];
+
+  // Players removed from the active pool for this auction (restorable).
+  @state() private discardedPlayers: PlayerRow[] = [];
 
   // Module-lineup explainer dialog state.
   @state() private lineupDialogOpen = false;
@@ -83,14 +96,29 @@ export class AuctionRunning extends LitElement {
     ) {
       this.teamAggregates = this.computeTeamAggregates();
     }
+    if (changed.has("players")) {
+      this.discardedPlayers = this.players
+        .filter((p) => p.discarded)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
   }
 
   private computeTeamAggregates(): TeamAggregate[] {
     const teams = this.auction?.teams ?? [];
+    const credits = this.auction?.credits_per_team ?? 0;
     const playerById = new Map(this.players.map((p) => [p.id, p]));
     const byTeam = new Map<number, TeamAggregate>();
     for (const t of teams) {
-      byTeam.set(t.id, { team: t, spent: 0, count: 0, gks: 0, rows: [] });
+      byTeam.set(t.id, {
+        team: t,
+        spent: 0,
+        count: 0,
+        gks: 0,
+        rows: [],
+        evalSpent: 0,
+        evalExpected: 0,
+        performance: "none",
+      });
     }
     for (const purchase of this.purchases) {
       const agg = byTeam.get(purchase.team_id);
@@ -100,6 +128,14 @@ export class AuctionRunning extends LitElement {
       agg.count += 1;
       if (player && player.mantra_roles.includes(GK_ROLE)) agg.gks += 1;
       agg.rows.push({ purchase, player });
+
+      // Performance signal: only count purchases of players the user
+      // actually evaluated > 0. Unrated purchases carry no signal.
+      const evalScaled = toAuctionCredits(player?.evaluation ?? null, credits);
+      if (evalScaled !== null && evalScaled > 0) {
+        agg.evalExpected += evalScaled;
+        agg.evalSpent += purchase.price;
+      }
     }
     for (const agg of byTeam.values()) {
       agg.rows.sort((a, b) => {
@@ -108,6 +144,7 @@ export class AuctionRunning extends LitElement {
         if (ar !== br) return ar - br;
         return (a.player?.name ?? "").localeCompare(b.player?.name ?? "");
       });
+      agg.performance = performanceBucket(agg.evalSpent, agg.evalExpected);
     }
     return teams.map((t) => byTeam.get(t.id)!);
   }
@@ -126,6 +163,35 @@ export class AuctionRunning extends LitElement {
     this.dispatchEvent(
       new CustomEvent("purchases-changed", { bubbles: true, composed: true }),
     );
+  }
+
+  // Restoring a player only changes the active pool (the snapshot's
+  // `discarded` flags + role saturation), not purchases — a separate
+  // signal so the parent reloads the right slices.
+  private notifyPoolChanged(): void {
+    this.dispatchEvent(
+      new CustomEvent("pool-changed", { bubbles: true, composed: true }),
+    );
+  }
+
+  private async restorePlayer(player: PlayerRow): Promise<void> {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auction.id}/players/${player.id}/discard`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ discarded: false }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `HTTP ${res.status}`);
+      }
+      this.notifyPoolChanged();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
   }
 
   private startEdit(p: Purchase): void {
@@ -197,6 +263,20 @@ export class AuctionRunning extends LitElement {
     }
   }
 
+  private renderPerformanceArrow(agg: TeamAggregate) {
+    const choice = PERFORMANCE_ICON[agg.performance];
+    const diff = agg.evalExpected - agg.evalSpent;
+    const title =
+      agg.performance === "none"
+        ? msg("no evaluated purchases yet")
+        : msg(
+            str`vs your evals: ${diff >= 0 ? "+" : ""}${diff} cr (${agg.evalExpected} expected, ${agg.evalSpent} paid)`,
+          );
+    return html`<span class=${"shrink-0 " + choice.cls} title=${title}
+      >${icon(choice.name, { size: 14 })}</span
+    >`;
+  }
+
   private renderTeamColumn(agg: TeamAggregate, teams: Team[]) {
     const t = agg.team;
     const left = this.auction.credits_per_team - agg.spent;
@@ -211,11 +291,23 @@ export class AuctionRunning extends LitElement {
 
     return html`
       <div
-        class="flex flex-col min-w-[240px] w-[240px] rounded-xl border border-line bg-surface shrink-0"
+        class=${"flex flex-col min-w-[240px] w-[240px] rounded-xl shrink-0 border " +
+        (t.is_my_team
+          ? "border-accent/30 bg-accent/[0.04]"
+          : "border-line bg-surface")}
       >
         <div class="px-3 py-2.5 border-b border-line flex flex-col gap-1">
           <div class="flex items-center justify-between gap-2">
-            <div class="text-[13px] font-bold truncate">${t.team_name}</div>
+            <div class="flex items-center gap-1.5 min-w-0">
+              <div class="text-[13px] font-bold truncate">${t.team_name}</div>
+              ${t.is_my_team
+                ? html`<span
+                    class="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-px rounded bg-accent text-black"
+                    title=${msg("This is your team")}
+                  >${msg("you")}</span>`
+                : nothing}
+              ${this.renderPerformanceArrow(agg)}
+            </div>
             <div
               class=${"text-[12px] font-semibold tabular-nums " +
               (left <= 0 ? "text-danger" : "text-accent")}
@@ -246,8 +338,8 @@ export class AuctionRunning extends LitElement {
                     <span class="font-semibold text-fg w-9">${m.name}</span>
                     <div class="flex-1 h-0.5 bg-line rounded-full overflow-hidden">
                       <div
-                        class="h-full bg-accent rounded-full"
-                        style=${`width: ${Math.round(m.confidence * 100)}%`}
+                        class="h-full rounded-full"
+                        style=${`width: ${Math.round(m.confidence * 100)}%; background-color: hsl(${Math.round(m.confidence * 100) * 1.2}, 80%, 50%);`}
                       ></div>
                     </div>
                     <span class="text-fg-muted tabular-nums w-9 text-right">
@@ -352,20 +444,57 @@ export class AuctionRunning extends LitElement {
     `;
   }
 
+  private renderDiscardedPanel() {
+    const discarded = this.discardedPlayers;
+    if (discarded.length === 0) return nothing;
+    return html`
+      <section class="mt-6">
+        <div class="rounded-xl border border-line bg-surface px-3 py-2.5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-warn">${icon("ban", { size: 14 })}</span>
+            <h2 class="text-[12px] font-bold uppercase tracking-wider text-fg-muted m-0">
+              ${msg(str`Discarded (${discarded.length})`)}
+            </h2>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            ${discarded.map(
+              (p) => html`
+                <div
+                  class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full border border-line bg-app text-[12px]"
+                >
+                  <span class="font-semibold text-fg-dim">${p.name}</span>
+                  ${renderRoleChips(p.mantra_roles)}
+                  <button
+                    type="button"
+                    @click=${() => this.restorePlayer(p)}
+                    aria-label=${msg(str`Restore ${p.name}`)}
+                    title=${msg("Restore to the active pool")}
+                    class="w-6 h-6 grid place-items-center rounded-full text-accent hover:bg-accent/10"
+                  >${icon("rotate-ccw", { size: 12 })}</button>
+                </div>
+              `,
+            )}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   override render() {
     const teams = this.auction.teams ?? [];
     return html`
       <section>
         <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Teams")}</h2>
-        <div class="flex gap-3 overflow-x-auto pb-2">
+        <div class="flex gap-3 overflow-x-auto pb-2" ${dragScroll()}>
           ${this.teamAggregates.map((agg) => this.renderTeamColumn(agg, teams))}
         </div>
       </section>
+      ${this.renderDiscardedPanel()}
       ${this.modules.length > 0
         ? html`
             <section class="mt-6">
               <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Modules")}</h2>
-              <div class="flex gap-3 overflow-x-auto pb-2">
+              <div class="flex gap-3 overflow-x-auto pb-2" ${dragScroll()}>
                 ${this.modules.map(
                   (m) => html`<module-pitch .module=${m}></module-pitch>`,
                 )}

@@ -15,8 +15,10 @@ import {
   type ModulePredictionsResponse,
   type PlayerRow,
   type Purchase,
+  type RoleSaturationResponse,
 } from "../auction-shared";
 import "./auction-evaluations";
+import "./auction-overview";
 import "./auction-running";
 import "./auction-finished";
 import "./auction-dialog";
@@ -65,6 +67,7 @@ export class AuctionPage extends LitElement {
   @state() private players: PlayerRow[] = [];
   @state() private purchases: Purchase[] = [];
   @state() private modulePredictions: Record<number, ModulePrediction[]> = {};
+  @state() private roleSaturation: RoleSaturationResponse | null = null;
   @state() private terminating = false;
   @state() private terminateError = "";
 
@@ -141,11 +144,13 @@ export class AuctionPage extends LitElement {
           this.loadPlayers(),
           this.loadPurchases(),
           this.loadModulePredictions(),
+          this.loadRoleSaturation(),
         ]);
       } else {
         this.players = [];
         this.purchases = [];
         this.modulePredictions = {};
+        this.roleSaturation = null;
         // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
         // call/buy selection so the UI doesn't render a buy form against
         // stale state.
@@ -185,13 +190,55 @@ export class AuctionPage extends LitElement {
     this.modulePredictions = next;
   }
 
+  private async loadRoleSaturation(): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/role-saturation`,
+    );
+    if (!res.ok) throw new Error(`/role-saturation HTTP ${res.status}`);
+    this.roleSaturation = (await res.json()) as RoleSaturationResponse;
+  }
+
   private onAuctionStarted = (): void => {
     void this.load();
   };
 
+  private refreshAfterPurchaseChange(): Promise<unknown> {
+    return Promise.all([
+      this.loadPurchases(),
+      this.loadModulePredictions(),
+      this.loadRoleSaturation(),
+    ]);
+  }
+
   private onPurchasesChanged = (): void => {
-    void Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
+    void this.refreshAfterPurchaseChange();
   };
+
+  // Discarding/restoring a player changes the active pool: the snapshot's
+  // `discarded` flags (players list) and the per-role saturation both
+  // shift. Purchases and module predictions are unaffected.
+  private refreshAfterPoolChange(): Promise<unknown> {
+    return Promise.all([this.loadPlayers(), this.loadRoleSaturation()]);
+  }
+
+  private async patchDiscard(
+    playerId: number,
+    discarded: boolean,
+  ): Promise<void> {
+    const res = await fetch(
+      `${BACKEND_URL}/auctions/${this.auctionId}/players/${playerId}/discard`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ discarded }),
+      },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new Error(data.detail ?? `HTTP ${res.status}`);
+    }
+    await this.refreshAfterPoolChange();
+  }
 
   private computeTerminateBlockers(): string[] {
     const a = this.auction;
@@ -264,7 +311,12 @@ export class AuctionPage extends LitElement {
     if (!q) return [];
     const sold = new Set(this.purchases.map((p) => p.player_id));
     return this.players
-      .filter((p) => !sold.has(p.id) && p.name.toLowerCase().includes(q))
+      .filter(
+        (p) =>
+          !sold.has(p.id) &&
+          !p.discarded &&
+          p.name.toLowerCase().includes(q),
+      )
       .slice(0, 12);
   }
 
@@ -359,7 +411,31 @@ export class AuctionPage extends LitElement {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `HTTP ${res.status}`);
       }
-      await Promise.all([this.loadPurchases(), this.loadModulePredictions()]);
+      await this.refreshAfterPurchaseChange();
+      this.clearSelection();
+    } catch (err) {
+      this.buyError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.buyBusy = false;
+    }
+  }
+
+  private async discardSelected(): Promise<void> {
+    if (!this.selected) return;
+    const { id: playerId, name } = this.selected;
+    if (
+      !confirm(
+        msg(
+          str`Discard ${name}? They'll be removed from the active pool — you can restore them later.`,
+        ),
+      )
+    ) {
+      return;
+    }
+    this.buyBusy = true;
+    this.buyError = "";
+    try {
+      await this.patchDiscard(playerId, true);
       this.clearSelection();
     } catch (err) {
       this.buyError = err instanceof Error ? err.message : String(err);
@@ -439,7 +515,7 @@ export class AuctionPage extends LitElement {
         : msg(str`${blockers.length} teams incomplete`);
     return html`
       <div
-        class="flex flex-col items-stretch gap-1.5 min-w-[170px] max-w-[260px]"
+        class="flex flex-col items-stretch gap-1.5 min-w-[170px] max-w-[260px] w-full"
       >
         <button
           type="button"
@@ -455,6 +531,7 @@ export class AuctionPage extends LitElement {
           (can ? "text-accent" : "text-fg-muted")}
           title=${can ? "" : blockers.join("; ")}
         >${blockerText}</p>
+        ${this.renderAuctionProgress()}
         ${this.terminateError
           ? html`<p class="text-danger text-[11px] m-0 text-center">
               ${this.terminateError}
@@ -468,7 +545,7 @@ export class AuctionPage extends LitElement {
     const results = this.searchResults;
     return html`
       <div
-        class="rounded-xl border border-line bg-surface p-3 h-full flex items-center"
+        class="rounded-xl border border-line bg-surface p-3 flex items-center"
       >
         <div class="relative w-full">
           <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none">
@@ -513,10 +590,54 @@ export class AuctionPage extends LitElement {
     `;
   }
 
+  private renderAuctionProgress() {
+    const a = this.auction;
+    if (!a) return nothing;
+    const totalCredits = a.number_of_auctioners * a.credits_per_team;
+    const spentCredits = this.purchases.reduce((sum, p) => sum + p.price, 0);
+    const totalPlayers = a.number_of_auctioners * a.min_team_size;
+    const boughtPlayers = this.purchases.length;
+    const pct =
+      totalCredits > 0
+        ? Math.min(100, Math.round((spentCredits / totalCredits) * 100))
+        : 0;
+    // Red at 0% → green at 100%: bar fills as the auction progresses
+    // toward termination. A full green bar means "ready to wrap up",
+    // mirroring the read direction of the adjacent Terminate button.
+    const hue = pct * 1.2;
+    const fractionTitle = msg(
+      str`Players already bought (${boughtPlayers}) out of the minimum needed across all teams (${totalPlayers}).`,
+    );
+    const barTitle = msg(
+      str`Credits spent across all teams (${spentCredits}) out of the total auction budget (${totalCredits}). Red = just started; green = nearly done.`,
+    );
+    return html`
+      <div class="flex items-center gap-2 mt-1">
+        <span
+          class="text-[10px] text-fg-dim tabular-nums"
+          title=${fractionTitle}
+        >${boughtPlayers}/${totalPlayers}</span>
+        <div
+          class="flex-1 h-1.5 rounded-full bg-app border border-line overflow-hidden"
+          title=${barTitle}
+        >
+          <div
+            class="h-full rounded-full transition-[width,background-color] duration-200"
+            style=${`width: ${pct}%; background-color: hsl(${hue}, 80%, 50%);`}
+          ></div>
+        </div>
+        <span
+          class="text-[10px] text-fg-muted tabular-nums w-8 text-right"
+          title=${barTitle}
+        >${pct}%</span>
+      </div>
+    `;
+  }
+
   private renderTopRandom() {
     return html`
       <div
-        class="rounded-xl border border-line bg-surface p-3 h-full flex items-center"
+        class="rounded-xl border border-line bg-surface p-3 flex items-center"
       >
         <button
           type="button"
@@ -597,6 +718,14 @@ export class AuctionPage extends LitElement {
           >
             ${this.buyBusy ? msg("…") : msg("Buy")}
           </button>
+          <button
+            type="button"
+            ?disabled=${this.buyBusy}
+            @click=${() => this.discardSelected()}
+            aria-label=${msg("Discard player")}
+            title=${msg("Discard — remove from the active pool (reversible)")}
+            class="shrink-0 w-8 h-8 grid place-items-center rounded text-warn border border-line hover:bg-warn/10 hover:border-warn/40 disabled:opacity-40 disabled:cursor-not-allowed"
+          >${icon("ban", { size: 14 })}</button>
         </div>
         ${this.buyError
           ? html`<p class="text-danger text-[11px] m-0">${this.buyError}</p>`
@@ -643,8 +772,8 @@ export class AuctionPage extends LitElement {
               <span class="text-fg flex-1 truncate">${t.team_name}</span>
               <div class="w-16 h-0.5 bg-line rounded-full overflow-hidden">
                 <div
-                  class="h-full bg-accent rounded-full"
-                  style=${`width: ${Math.round(t.confidence * 100)}%`}
+                  class="h-full rounded-full"
+                  style=${`width: ${Math.round(t.confidence * 100)}%; background-color: hsl(${Math.round(t.confidence * 100) * 1.2}, 80%, 50%);`}
                 ></div>
               </div>
               <span class="text-fg-muted tabular-nums w-8 text-right">
@@ -732,10 +861,9 @@ export class AuctionPage extends LitElement {
 
       <section class="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 items-stretch">
         ${isRunning
-          ? html`<div class="md:col-span-2">
-              ${a.type === "CALL"
-                ? this.renderTopSearch()
-                : this.renderTopRandom()}
+          ? html`<div class="md:col-span-2 flex flex-col gap-2">
+              ${this.renderTopSearch()}
+              ${this.renderTopRandom()}
             </div>`
           : nothing}
         ${this.renderInfoCard(a, infoSpan)}
@@ -764,14 +892,27 @@ export class AuctionPage extends LitElement {
     return html`
       <section class="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 items-stretch">
         <div class="md:col-span-2">${leftSlot}</div>
-        <div
-          class="md:col-span-10 rounded-xl border border-line bg-surface min-h-[120px] p-4 flex items-center justify-center text-fg-muted text-[13px]"
-        >
-          ${msg("Auction overview — coming soon")}
+        <div class="md:col-span-10">
+          <auction-overview
+            .auction=${a}
+            .players=${this.players}
+            .purchases=${this.purchases}
+            .roleSaturation=${this.roleSaturation}
+            @player-selected=${this.onOverviewSelect}
+          ></auction-overview>
         </div>
       </section>
     `;
   }
+
+  private onOverviewSelect = (e: Event): void => {
+    const detail = (e as CustomEvent<{ player: PlayerRow }>).detail;
+    if (detail?.player) this.selectPlayer(detail.player);
+  };
+
+  private onPoolChanged = (): void => {
+    void this.refreshAfterPoolChange();
+  };
 
   private renderCenter(a: Auction) {
     switch (a.status) {
@@ -789,6 +930,7 @@ export class AuctionPage extends LitElement {
             .purchases=${this.purchases}
             .modulePredictions=${this.modulePredictions}
             @purchases-changed=${this.onPurchasesChanged}
+            @pool-changed=${this.onPoolChanged}
           ></auction-running>
         `;
       case "TERMINATED":

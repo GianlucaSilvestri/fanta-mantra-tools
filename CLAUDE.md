@@ -60,6 +60,7 @@ Two Postgres enums + four tables (defined in `backend/app/models.py`, migrations
   - CHECK `max_team_size >= min_team_size`.
 - Table `auction_teams` (the teams participating in a given auction; **fully editable only while the parent auction is `INITIAL`**):
   - `id` (serial PK), `auction_id` (int NOT NULL, FK → `auction.id` ON DELETE CASCADE), `team_name` (text NOT NULL).
+  - `is_my_team` (bool NOT NULL, default FALSE) — marks the single team the user themselves controls. Enforced at-most-one-per-auction by a partial unique index `(auction_id) WHERE is_my_team = true`. Required to be set on exactly one team before the `INITIAL → IN_PROGRESS` transition.
   - `created_at`, `updated_at` (same shape as `auction`).
   - UNIQUE `(auction_id, team_name)`.
 - Table `auction_evaluations` (user-supplied; **survives xlsx imports**):
@@ -69,7 +70,7 @@ Two Postgres enums + four tables (defined in `backend/app/models.py`, migrations
 
 The xlsx columns we don't store: `Qt.A, Qt.I, Diff., Qt.I M, Diff.M, FVM`, and the `R` macro role (derivable from `mantra_roles`).
 
-Migrations so far: `0001_create_players_table`, `0002_team_to_varchar`, `0003_simplify_player_columns`, `0004_drop_user_market_value`, `0005_create_user_evaluations`, `0006_create_user_preferences`, `0007_simplify_user_evaluations`, `0008_auctions_refactor` (dropped the singleton `user_preferences` and the player-only-keyed `user_evaluations`; introduced the `auction` / `auction_teams` / `auction_evaluations` trio and the `auction_status` enum), `0013_create_rules_tables` (moved `rules.json` weights + modules catalogue into `role_weights` / `lineup_modules` / `lineup_module_slots` and removed the JSON file).
+Migrations so far: `0001_create_players_table`, `0002_team_to_varchar`, `0003_simplify_player_columns`, `0004_drop_user_market_value`, `0005_create_user_evaluations`, `0006_create_user_preferences`, `0007_simplify_user_evaluations`, `0008_auctions_refactor` (dropped the singleton `user_preferences` and the player-only-keyed `user_evaluations`; introduced the `auction` / `auction_teams` / `auction_evaluations` trio and the `auction_status` enum), `0013_create_rules_tables` (moved `rules.json` weights + modules catalogue into `role_weights` / `lineup_modules` / `lineup_module_slots` and removed the JSON file), `0014_swap_dd_ds_slot_positions` (swapped the lower/upper position numbers for `Dd` and `Ds` so pitch rendering matches their semantic side), `0015_auction_team_is_my_team` (added `is_my_team` to `auction_teams` plus a partial unique index for at-most-one-per-auction).
 
 Unknown MantraRole values in the xlsx still raise loudly (signals a real rule change — add the value to the enum + a new migration).
 
@@ -77,12 +78,12 @@ Unknown MantraRole values in the xlsx still raise loudly (signals a real rule ch
 
 Lives in `backend/app/routers/auctions.py`. All auction-scoped operations are nested under this router:
 
-- `POST /auctions` — create a new auction. Body has the 5 preference fields + `name`, `description`, optional `teams: list[str]`.
+- `POST /auctions` — create a new auction. Body has the 5 preference fields + `name`, `description`, optional `teams: list[str]`, and optional `my_team_index: int` (index into `teams` marking which is the user's own team — required eventually, but can be set later via PATCH).
 - `GET /auctions` — list all auctions ordered by `created_at DESC` (most recent first; the evaluations page relies on this for default selection). Each row includes `number_of_teams`.
-- `GET /auctions/{id}` — full detail including the `teams` list.
-- `PATCH /auctions/{id}` — partial update of name/description/status/preferences. Preference + name/description edits return 409 if `status != INITIAL`. The `INITIAL → IN_PROGRESS` transition is gated on a complete evaluation: the handler computes `/evaluations/status` and returns 409 unless all three groups (`credits`, `players`, `goalkeepers`) are `"ok"`. Other transitions (e.g. `IN_PROGRESS → TERMINATED`, manual rollback to `INITIAL`) are not enforced.
+- `GET /auctions/{id}` — full detail including the `teams` list. Teams come back sorted `is_my_team DESC, id ASC` (one ordering rule for every consumer — the dialog, the running view's team columns, and the team dropdown all inherit it).
+- `PATCH /auctions/{id}` — partial update of name/description/status/preferences. Preference + name/description edits return 409 if `status != INITIAL`. The `INITIAL → IN_PROGRESS` transition is gated on (1) a complete evaluation — all three groups of `/evaluations/status` must be `"ok"` — and (2) exactly one team flagged `is_my_team`. Returns 409 otherwise. Other transitions (e.g. `IN_PROGRESS → TERMINATED`, manual rollback to `INITIAL`) are not enforced.
 - `DELETE /auctions/{id}` — cascade-deletes `auction_teams` and `auction_evaluations` for that auction.
-- `POST /auctions/{id}/teams` and `DELETE /auctions/{id}/teams/{team_id}` — team CRUD. Both return 409 if the auction isn't `INITIAL`. `POST` returns 409 on a duplicate `(auction_id, team_name)`.
+- `POST /auctions/{id}/teams`, `PATCH /auctions/{id}/teams/{team_id}`, and `DELETE /auctions/{id}/teams/{team_id}` — team CRUD. All three return 409 if the auction isn't `INITIAL`. `POST` returns 409 on a duplicate `(auction_id, team_name)` and accepts an optional `is_my_team: bool` to mark the team as the user's own on creation. `PATCH` body is `{is_my_team: bool}`; setting `true` atomically unsets any other team in the same auction that was previously marked.
 - `PATCH /auctions/{id}/evaluations/{player_id}` — upsert one evaluation. Body `{"evaluation": int | null}`; explicit `null` clears. Returns 409 if auction isn't `INITIAL`. Stores the value normalized to the 1000-credit base.
 - `GET /auctions/{id}/evaluations/status` — completeness snapshot for the evaluations indicator. See below.
 - `GET /auctions/{id}/evaluations/export` — downloads a CSV of every non-null evaluation for the auction. See **CSV format** below.

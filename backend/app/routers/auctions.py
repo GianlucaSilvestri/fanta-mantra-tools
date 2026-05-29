@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, literal, select
+from sqlalchemy import delete, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -17,6 +17,7 @@ from backend.app.models import (
     AuctionStatus,
     AuctionTeam,
     AuctionType,
+    MantraRole,
     Player,
 )
 from backend.app.services.autofill_evaluations import compute_autofill_evaluations
@@ -50,6 +51,10 @@ class AuctionCreate(BaseModel):
     credits_per_team: int = Field(ge=1)
     number_of_goalkeepers: int = Field(ge=0)
     teams: list[str] = Field(default_factory=list)
+    # Optional: index into `teams` marking which one is the user's own
+    # team. Required to ever start the auction, but optional at create
+    # time so the user can set it later from the edit dialog.
+    my_team_index: int | None = Field(default=None, ge=0)
 
 
 class AuctionPatch(BaseModel):
@@ -72,6 +77,19 @@ class TeamCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     team_name: str = Field(min_length=1)
+    is_my_team: bool = False
+
+
+class TeamPatch(BaseModel):
+    """Single-field patch for an auction_team row.
+
+    Currently only the `is_my_team` flag is mutable; team_name is
+    immutable post-creation by design.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_my_team: bool
 
 
 class EvaluationPatch(BaseModel):
@@ -80,6 +98,14 @@ class EvaluationPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     evaluation: int | None = Field(default=None, ge=1)
+
+
+class DiscardPatch(BaseModel):
+    """Toggle the per-(auction, player) `discarded` flag."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    discarded: bool
 
 
 # Fields a PATCH cannot touch when the auction has moved past INITIAL.
@@ -118,7 +144,29 @@ def _pct(value: int, base: int) -> float:
 
 
 def _serialize_team(t: AuctionTeam) -> dict:
-    return {"id": t.id, "team_name": t.team_name}
+    return {"id": t.id, "team_name": t.team_name, "is_my_team": t.is_my_team}
+
+
+def _set_my_team(session, auction_id: int, team_id: int) -> None:
+    """Atomically clear any existing `is_my_team=true` for this auction
+    and mark the target team. Safe to call when the target is already
+    set — the partial unique index never sees two TRUE rows simultaneously
+    because we clear before setting in the same transaction.
+    """
+    session.execute(
+        update(AuctionTeam)
+        .where(
+            AuctionTeam.auction_id == auction_id,
+            AuctionTeam.id != team_id,
+            AuctionTeam.is_my_team.is_(True),
+        )
+        .values(is_my_team=False)
+    )
+    session.execute(
+        update(AuctionTeam)
+        .where(AuctionTeam.id == team_id)
+        .values(is_my_team=True)
+    )
 
 
 def _serialize_auction(a: Auction, team_count: int, teams: list[AuctionTeam] | None = None) -> dict:
@@ -166,6 +214,15 @@ def create_auction(body: AuctionCreate) -> dict:
             raise HTTPException(status_code=400, detail=f"duplicate team name: {name}")
         seen.add(name)
 
+    if body.my_team_index is not None and body.my_team_index >= len(body.teams):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"my_team_index {body.my_team_index} is out of range for "
+                f"{len(body.teams)} teams"
+            ),
+        )
+
     with SessionLocal() as session:
         with session.begin():
             auction = Auction(
@@ -188,6 +245,11 @@ def create_auction(body: AuctionCreate) -> dict:
                 session.add(t)
             session.flush()
 
+            if body.my_team_index is not None:
+                teams[body.my_team_index].is_my_team = True
+                session.flush()
+
+            teams = _ordered_teams(session, auction.id)
             return _serialize_auction(auction, len(teams), teams)
 
 
@@ -210,19 +272,26 @@ def list_auctions() -> list[dict]:
         return [_serialize_auction(a, int(count)) for a, count in session.execute(stmt).all()]
 
 
+def _ordered_teams(session, auction_id: int) -> list[AuctionTeam]:
+    """Teams for an auction with the user's own team first (if marked),
+    then by id ascending. One place to enforce the ordering so every
+    consumer (list, detail, dialog, dropdown) agrees.
+    """
+    return list(
+        session.execute(
+            select(AuctionTeam)
+            .where(AuctionTeam.auction_id == auction_id)
+            .order_by(AuctionTeam.is_my_team.desc(), AuctionTeam.id.asc())
+        )
+        .scalars()
+    )
+
+
 def _load_auction_with_teams(session, auction_id: int) -> tuple[Auction, list[AuctionTeam]]:
     auction = session.get(Auction, auction_id)
     if auction is None:
         raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
-    teams = list(
-        session.execute(
-            select(AuctionTeam)
-            .where(AuctionTeam.auction_id == auction_id)
-            .order_by(AuctionTeam.id.asc())
-        )
-        .scalars()
-    )
-    return auction, teams
+    return auction, _ordered_teams(session, auction_id)
 
 
 @router.get("/{auction_id}")
@@ -305,6 +374,23 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                         ),
                     )
 
+                my_team_count = int(
+                    session.execute(
+                        select(func.count(AuctionTeam.id)).where(
+                            AuctionTeam.auction_id == auction_id,
+                            AuctionTeam.is_my_team.is_(True),
+                        )
+                    ).scalar_one()
+                )
+                if my_team_count == 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "cannot start auction: you must mark one team as "
+                            "your own before starting"
+                        ),
+                    )
+
                 snapshot = _compute_evaluation_status(session, auction)
                 blockers = [
                     group for group, info in snapshot.items() if info["status"] != "ok"
@@ -373,14 +459,7 @@ def patch_auction(auction_id: int, patch: AuctionPatch) -> dict:
                 setattr(auction, k, v)
             session.flush()
 
-            teams = list(
-                session.execute(
-                    select(AuctionTeam)
-                    .where(AuctionTeam.auction_id == auction_id)
-                    .order_by(AuctionTeam.id.asc())
-                )
-                .scalars()
-            )
+            teams = _ordered_teams(session, auction_id)
             return _serialize_auction(auction, len(teams), teams)
 
 
@@ -431,6 +510,42 @@ def add_team(auction_id: int, body: TeamCreate) -> dict:
                     status_code=409,
                     detail=f"team name {body.team_name!r} already exists for this auction",
                 ) from exc
+            if body.is_my_team:
+                _set_my_team(session, auction_id, team.id)
+                session.refresh(team)
+            return _serialize_team(team)
+
+
+@router.patch("/{auction_id}/teams/{team_id}")
+def patch_team(auction_id: int, team_id: int, body: TeamPatch) -> dict:
+    """Flip the `is_my_team` flag on a single team.
+
+    Setting `true` atomically unsets any other team in the same auction
+    that was previously marked, so the partial unique index is never
+    violated. Setting `false` simply clears this team's flag.
+    """
+    with SessionLocal() as session:
+        with session.begin():
+            auction = session.get(Auction, auction_id)
+            if auction is None:
+                raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
+            if auction.status != AuctionStatus.INITIAL:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"auction is {auction.status.value}; teams can only be edited while INITIAL",
+                )
+            team = session.get(AuctionTeam, team_id)
+            if team is None or team.auction_id != auction_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"team {team_id} not found in auction {auction_id}",
+                )
+            if body.is_my_team:
+                _set_my_team(session, auction_id, team_id)
+            else:
+                team.is_my_team = False
+            session.flush()
+            session.refresh(team)
             return _serialize_team(team)
 
 
@@ -994,6 +1109,7 @@ def random_unsold_player(auction_id: int) -> dict:
         auction = _require_running_auction(session, auction_id)
         unsold = select(AuctionPlayer).where(
             AuctionPlayer.auction_id == auction.id,
+            AuctionPlayer.discarded.is_(False),
             ~select(AuctionPurchase.player_id)
             .where(
                 AuctionPurchase.auction_id == auction.id,
@@ -1037,18 +1153,19 @@ def create_purchase(auction_id: int, body: PurchaseCreate) -> dict:
                     detail=f"team {body.team_id} not found in auction {auction_id}",
                 )
 
-            in_pool = session.execute(
-                select(func.count())
-                .select_from(AuctionPlayer)
-                .where(
-                    AuctionPlayer.auction_id == auction_id,
-                    AuctionPlayer.player_id == body.player_id,
-                )
-            ).scalar_one()
-            if not in_pool:
+            pooled = session.get(AuctionPlayer, (auction_id, body.player_id))
+            if pooled is None:
                 raise HTTPException(
                     status_code=404,
                     detail=f"player {body.player_id} is not in auction {auction_id}",
+                )
+            if pooled.discarded:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"player {body.player_id} is discarded in auction "
+                        f"{auction_id}; restore them before buying"
+                    ),
                 )
 
             existing = session.get(AuctionPurchase, (auction_id, body.player_id))
@@ -1175,6 +1292,50 @@ def delete_purchase(auction_id: int, player_id: int) -> dict:
     return {"deleted": player_id}
 
 
+@router.patch("/{auction_id}/players/{player_id}/discard")
+def patch_player_discard(
+    auction_id: int, player_id: int, body: DiscardPatch
+) -> dict:
+    """Toggle the `discarded` flag on a per-(auction, player) snapshot.
+
+    Setting `true` removes the player from the active pool (random
+    picker, role overview, purchase eligibility, role saturation);
+    `false` restores them. Only allowed IN_PROGRESS — the same lifecycle
+    gate as purchases. Refuses to discard a player already in
+    `auction_purchases` so a sold player can't quietly vanish.
+    """
+    with SessionLocal() as session:
+        with session.begin():
+            _require_running_auction(session, auction_id)
+            pooled = session.get(AuctionPlayer, (auction_id, player_id))
+            if pooled is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"player {player_id} is not in auction {auction_id}",
+                )
+            if body.discarded and not pooled.discarded:
+                already_sold = session.get(
+                    AuctionPurchase, (auction_id, player_id)
+                )
+                if already_sold is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"player {player_id} is already sold to team "
+                            f"{already_sold.team_id}; release the purchase "
+                            f"before discarding"
+                        ),
+                    )
+            pooled.discarded = body.discarded
+            session.flush()
+            session.refresh(pooled)
+            return {
+                "auction_id": pooled.auction_id,
+                "player_id": pooled.player_id,
+                "discarded": pooled.discarded,
+            }
+
+
 @router.get("/{auction_id}/teams/{team_id}/modules/{module_name}/lineup")
 def get_module_lineup(auction_id: int, team_id: int, module_name: str) -> dict:
     """Optimal player→slot assignment for one (team, module).
@@ -1248,6 +1409,14 @@ def get_buyer_interest(auction_id: int, player_id: int) -> dict:
                 status_code=404,
                 detail=f"player {player_id} is not in auction {auction_id}",
             )
+        if player.discarded:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"player {player_id} is discarded in auction {auction_id}; "
+                    f"buyer interest is only computed for active players"
+                ),
+            )
 
         return compute_player_interest(session, auction, player)
 
@@ -1277,13 +1446,7 @@ def get_module_predictions(auction_id: int) -> dict:
 
         per_team = compute_module_predictions(session, auction)
 
-        teams = list(
-            session.execute(
-                select(AuctionTeam)
-                .where(AuctionTeam.auction_id == auction_id)
-                .order_by(AuctionTeam.id)
-            ).scalars()
-        )
+        teams = _ordered_teams(session, auction_id)
         return {
             "auction_id": auction_id,
             "teams": [
@@ -1299,5 +1462,109 @@ def get_module_predictions(auction_id: int) -> dict:
                     ],
                 }
                 for t in teams
+            ],
+        }
+
+
+@router.get("/{auction_id}/role-saturation")
+def get_role_saturation(auction_id: int) -> dict:
+    """Per-role market-saturation totals.
+
+    For each Mantra role, returns the sum of the user's evaluations
+    across every evaluated player whose `mantra_roles` contains the
+    role (``evaluated_total``), and the same sum restricted to players
+    already sold in `auction_purchases` (``sold_total``). A player
+    with multiple roles contributes to each role independently — the
+    auctioneer thinks per-role, not per-player.
+
+    Totals are in the **base-1000 stored unit** (same scale as
+    `AuctionPlayer.evaluation`). The frontend only uses the ratio.
+
+    Only meaningful once the auction has frozen the player pool, so
+    INITIAL is rejected — same gate as the other live-auction
+    endpoints (module-predictions, buyer-interest).
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(
+                status_code=404, detail=f"auction {auction_id} not found"
+            )
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; role saturation is "
+                    f"only available once IN_PROGRESS"
+                ),
+            )
+
+        # One row per (role) for this auction. Players with multiple
+        # roles are unnested so each role gets credit. The LEFT JOIN
+        # on auction_purchases lets the CASE pick up "sold" rows
+        # without dropping the "still available" ones from the
+        # denominator.
+        # Two metrics per role in one pass:
+        #  - evaluated_total / sold_total: credits the user evaluated for
+        #    the role, and how many of those credits have been spent (this
+        #    is what drives the saturation %, hence the eval>0 filter
+        #    inside the CASEs).
+        #  - players_total / players_sold: raw player counts in the pool,
+        #    independent of whether the user evaluated them — surfaces
+        #    overall market progress for the role.
+        rows = session.execute(
+            text(
+                """
+                SELECT role::text AS role,
+                       COUNT(*) AS players_total,
+                       COALESCE(SUM(CASE WHEN pur.player_id IS NOT NULL
+                                         THEN 1 ELSE 0 END), 0)
+                         AS players_sold,
+                       COALESCE(SUM(CASE WHEN ap.evaluation IS NOT NULL
+                                          AND ap.evaluation > 0
+                                         THEN ap.evaluation ELSE 0 END), 0)
+                         AS evaluated_total,
+                       COALESCE(SUM(CASE WHEN ap.evaluation IS NOT NULL
+                                          AND ap.evaluation > 0
+                                          AND pur.player_id IS NOT NULL
+                                         THEN ap.evaluation ELSE 0 END), 0)
+                         AS sold_total
+                FROM auction_players ap
+                CROSS JOIN LATERAL unnest(ap.mantra_roles) AS role
+                LEFT JOIN auction_purchases pur
+                       ON pur.auction_id = ap.auction_id
+                      AND pur.player_id  = ap.player_id
+                WHERE ap.auction_id = :aid
+                  AND ap.discarded = false
+                GROUP BY role
+                """
+            ),
+            {"aid": auction_id},
+        ).all()
+
+        by_role: dict[str, dict[str, int]] = {
+            row.role: {
+                "players_total": int(row.players_total),
+                "players_sold": int(row.players_sold),
+                "evaluated_total": int(row.evaluated_total),
+                "sold_total": int(row.sold_total),
+            }
+            for row in rows
+        }
+
+        # Always emit all 12 roles in canonical enum order so the
+        # frontend can render a stable grid even when some roles
+        # have no players in this auction.
+        empty = {
+            "players_total": 0,
+            "players_sold": 0,
+            "evaluated_total": 0,
+            "sold_total": 0,
+        }
+        return {
+            "auction_id": auction_id,
+            "roles": [
+                {"role": r.value, **by_role.get(r.value, empty)}
+                for r in MantraRole
             ],
         }
