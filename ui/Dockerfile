@@ -9,4 +9,6 @@ RUN yarn install
 
 COPY . .
 
+RUN yarn i18n:build
+
 EXPOSE 5173
