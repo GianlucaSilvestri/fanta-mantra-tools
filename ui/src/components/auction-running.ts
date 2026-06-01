@@ -309,19 +309,27 @@ export class AuctionRunning extends LitElement {
               ${this.renderPerformanceArrow(agg)}
             </div>
             <div
-              class=${"text-[12px] font-semibold tabular-nums " +
+              class=${"flex items-center gap-1 text-[12px] font-semibold tabular-nums " +
               (left <= 0 ? "text-danger" : "text-accent")}
-            >${left}</div>
+              title=${msg("Credits left")}
+            >${left}<span class="text-warn">${icon("coins", { size: 12 })}</span></div>
           </div>
-          <div class="flex gap-2 text-[10px] uppercase tracking-wider">
-            <span class=${minOk ? "text-accent" : "text-fg-muted"}>
-              ${msg(str`P ${agg.count}/${this.auction.min_team_size}`)}
+          <div class="flex items-center gap-2 text-[10px] uppercase tracking-wider">
+            <span
+              class=${"flex items-center gap-1 " +
+              (minOk ? "text-accent" : "text-fg-muted")}
+              title=${msg("Players")}
+            >
+              <span class="text-sky-400">${icon("users", { size: 11 })}</span>${agg.count}/${this.auction.min_team_size}
             </span>
             <span class=${gkOk ? "text-accent" : "text-fg-muted"}>
               ${msg(str`GK ${agg.gks}/${this.auction.number_of_goalkeepers}`)}
             </span>
-            <span class="text-fg-muted ml-auto">
-              ${msg(str`spent ${agg.spent}`)}
+            <span
+              class="flex items-center gap-1 text-fg-muted ml-auto"
+              title=${msg("Credits spent")}
+            >
+              ${msg("spent")} ${agg.spent}<span class="text-warn">${icon("coins", { size: 11 })}</span>
             </span>
           </div>
         </div>

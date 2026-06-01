@@ -10,6 +10,7 @@ import {
   Ban,
   Check,
   ChevronRight,
+  Coins,
   Eye,
   File,
   Pencil,
@@ -20,6 +21,7 @@ import {
   Settings,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide";
 
@@ -47,6 +49,8 @@ const ICONS = {
   eye: Eye as IconData,
   ban: Ban as IconData,
   "rotate-ccw": RotateCcw as IconData,
+  coins: Coins as IconData,
+  users: Users as IconData,
 } as const;
 
 export type IconName = keyof typeof ICONS;
