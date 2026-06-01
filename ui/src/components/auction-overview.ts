@@ -130,8 +130,10 @@ export class AuctionOverview extends LitElement {
             class="inline-block text-[10px] font-bold tracking-wide px-1.5 py-px rounded text-black min-w-[22px] text-center"
             style=${`background: ${color};`}
           >${bucket.role}</span>
-          ${this.renderSaturation(bucket.role)}
-          ${this.renderPerformanceArrow(bucket)}
+          <span class="ml-auto">${this.renderPerformanceArrow(bucket)}</span>
+        </div>
+        <div class="px-2.5 py-2 border-b border-line flex items-center justify-center">
+          ${this.renderGauge(bucket.role)}
         </div>
         ${bucket.players.length === 0
           ? html`<div class="px-2.5 py-3 text-[11px] text-fg-muted italic text-center">
@@ -181,13 +183,12 @@ export class AuctionOverview extends LitElement {
     }
   }
 
-  private renderSaturation(role: string) {
-    // No data yet: keep the original "top 5" label so the header
-    // doesn't collapse / jump while the first fetch is in flight.
+  private renderGauge(role: string) {
+    const placeholder = html`<span class="text-fg-muted">—</span>`;
+    // No data yet: keep a faint placeholder so the band doesn't
+    // collapse / jump while the first fetch is in flight.
     if (!this.roleSaturation) {
-      return html`<span
-        class="text-[10px] text-fg-muted uppercase tracking-wider ml-auto"
-      >${msg("top 5")}</span>`;
+      return this.renderGaugeShell(null, 0, placeholder, null, msg("top 5"));
     }
     const row = this.saturationByRole.get(role);
     const evalTotal = row?.evaluated_total ?? 0;
@@ -195,54 +196,119 @@ export class AuctionOverview extends LitElement {
     const playersTotal = row?.players_total ?? 0;
     const playersSold = row?.players_sold ?? 0;
     if (evalTotal <= 0) {
-      return html`<span
-        class="text-[10px] text-fg-muted tabular-nums ml-auto"
-        title=${msg("no evaluated players for this role")}
-      >—</span>`;
+      return this.renderGaugeShell(
+        null,
+        0,
+        placeholder,
+        null,
+        msg("no evaluated players for this role"),
+      );
     }
-    const pct = Math.min(100, Math.round((soldTotal / evalTotal) * 100));
-    // Green at 0% → red at 100%: low saturation is good (lots of
-    // budget left for this role); high saturation is bad (market is
-    // drained). Hue 120→0 via 60 (yellow) is the natural traffic-light
-    // ramp.
-    const hue = 120 - (pct * 1.2);
-    const fractionTitle = msg(
-      str`Players in this role already bought (${playersSold}) out of the total in the auction pool (${playersTotal}).`,
+    const remaining = Math.max(0, evalTotal - soldTotal);
+    const remainingPct = Math.min(100, Math.round((remaining / evalTotal) * 100));
+    const playersLeft = Math.max(0, playersTotal - playersSold);
+    // Stored evaluations are base-1000; scale to this auction's budget so
+    // the credit figure matches the team columns' "credits left".
+    const remainingCredits =
+      toAuctionCredits(remaining, this.auction.credits_per_team) ?? 0;
+    // Inverse of the old saturation ramp: full (lots of budget left for
+    // this role) is green, nearly-drained is red. Hue 0→120 via 60
+    // (yellow) is the natural traffic-light ramp.
+    const hue = remainingPct * 1.2;
+    const title = msg(
+      str`${remainingCredits} credits and ${playersLeft} of ${playersTotal} players still available for this role (${remainingPct}% of your evaluated credits unspent). Full/green = market still wide open; empty/red = nearly drained.`,
     );
-    const barTitle = msg(
-      str`Share of your evaluated credits for this role already spent (${soldTotal} of ${evalTotal}). Green = market still wide open; red = nearly drained.`,
-    );
-    return html`
-      <span
-        class="text-[10px] text-fg-dim tabular-nums ml-auto"
-        title=${fractionTitle}
-      >${playersSold}/${playersTotal}</span>
-      <div
-        class="flex-1 h-1.5 rounded-full bg-app border border-line overflow-hidden"
-        title=${barTitle}
-      >
-        <div
-          class="h-full rounded-full transition-[width,background-color] duration-200"
-          style=${`width: ${pct}%; background-color: hsl(${hue}, 80%, 50%);`}
-        ></div>
-      </div>
-      <span
-        class="text-[10px] text-fg-muted tabular-nums w-8 text-right"
-        title=${barTitle}
-      >
-        ${pct}%
+    const label = html`
+      <span class="flex items-center gap-0.5 text-warn">
+        ${icon("coins", { size: 12 })}
+        <span class="text-fg-dim font-semibold">${remainingCredits}</span>
       </span>
+      <span class="flex items-center gap-0.5 text-sky-400">
+        ${icon("users", { size: 12 })}
+        <span class="text-fg-dim font-semibold">${playersLeft}</span>
+      </span>
+    `;
+    const caption = msg(str`left ${remainingPct}%`);
+    return this.renderGaugeShell(hue, remainingPct, label, caption, title);
+  }
+
+  // Shared semicircular speedometer. `hue` null → inert/greyed arc
+  // (loading or no evaluated players); otherwise the fill arc is drawn
+  // to `pct` (0..100) in hsl(hue,…). `label` (credits + players left)
+  // overlays inside the arc bowl; `caption` ("left N%") sits under it.
+  private renderGaugeShell(
+    hue: number | null,
+    pct: number,
+    label: unknown,
+    caption: string | null,
+    title: string,
+  ) {
+    // Geometry: 120×60 viewBox, semicircle radius 50 with baseline at
+    // y=50. pathLength=100 lets the fill use the remaining percentage
+    // directly as a dash length.
+    const arc = "M 10 50 A 50 50 0 0 1 110 50";
+    const fillColor = hue === null ? "var(--color-line-strong, #555)" : `hsl(${hue}, 80%, 50%)`;
+    return html`
+      <div
+        class="flex flex-col items-center select-none"
+        title=${title}
+      >
+        <div class="relative">
+          <svg
+            width="104"
+            height="52"
+            viewBox="0 0 120 60"
+            fill="none"
+            class="overflow-visible"
+            aria-hidden="true"
+          >
+            <path
+              d=${arc}
+              stroke="var(--color-line, #262626)"
+              stroke-width="9"
+              stroke-linecap="round"
+              pathLength="100"
+            />
+            <path
+              d=${arc}
+              stroke=${fillColor}
+              stroke-width="9"
+              stroke-linecap="round"
+              pathLength="100"
+              stroke-dasharray=${`${pct} 100`}
+              class="transition-[stroke-dasharray,stroke] duration-200"
+            />
+          </svg>
+          <div
+            class="absolute inset-x-0 bottom-1 flex items-center justify-center gap-2.5 text-[11px] tabular-nums"
+          >
+            ${label}
+          </div>
+        </div>
+        ${caption
+          ? html`<div
+              class="-mt-0.5 text-[10px] uppercase tracking-wider text-fg-muted tabular-nums"
+            >${caption}</div>`
+          : nothing}
+      </div>
     `;
   }
 
   private renderRow(p: PlayerRow, credits: number) {
     const scaled = toAuctionCredits(p.evaluation, credits);
     return html`
-      <button
-        type="button"
-        @click=${() => this.selectPlayer(p)}
-        class="w-full text-left px-2.5 py-1.5 border-b border-line last:border-b-0 hover:bg-surface-hover transition-colors flex items-center gap-2"
+      <div
+        class="px-2.5 py-1.5 border-b border-line last:border-b-0 flex items-center gap-2"
       >
+        <button
+          type="button"
+          @click=${() => this.selectPlayer(p)}
+          title=${msg("Put this player up for auction")}
+          aria-label=${msg("Put this player up for auction")}
+          class="shrink-0 p-1 rounded text-fg-muted hover:text-accent hover:bg-surface-hover transition-colors"
+        >
+          ${icon("play", { size: 12 })}
+        </button>
         <div class="min-w-0 flex-1">
           <div class="text-[12px] text-fg-dim truncate">${p.name}</div>
           <div class="text-[10px] text-fg-muted truncate">${p.team}</div>
@@ -250,7 +316,7 @@ export class AuctionOverview extends LitElement {
         <span class="text-[12px] text-fg-muted tabular-nums shrink-0">
           ${scaled ?? "—"}
         </span>
-      </button>
+      </div>
     `;
   }
 
