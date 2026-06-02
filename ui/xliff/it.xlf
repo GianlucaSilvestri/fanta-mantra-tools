@@ -578,14 +578,6 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
   <source>no evaluated players for this role</source>
   <target>nessun giocatore valutato per questo ruolo</target>
 </trans-unit>
-<trans-unit id="s5544ee9228dd3948">
-  <source>Players in this role already bought (<x id="0" equiv-text="${playersSold}"/>) out of the total in the auction pool (<x id="1" equiv-text="${playersTotal}"/>).</source>
-  <target>Giocatori in questo ruolo già acquistati (<x id="0" equiv-text="${playersSold}"/>) sul totale presente nel pool dell'asta (<x id="1" equiv-text="${playersTotal}"/>).</target>
-</trans-unit>
-<trans-unit id="s9c9b19b64b9858f6">
-  <source>Share of your evaluated credits for this role already spent (<x id="0" equiv-text="${soldTotal}"/> of <x id="1" equiv-text="${evalTotal}"/>). Green = market still wide open; red = nearly drained.</source>
-  <target>Quota dei tuoi crediti valutati per questo ruolo già spesa (<x id="0" equiv-text="${soldTotal}"/> di <x id="1" equiv-text="${evalTotal}"/>). Verde = mercato ancora ampiamente aperto; rosso = quasi esaurito.</target>
-</trans-unit>
 <trans-unit id="s32960386f34bc8a2">
   <source>Terminate "<x id="0" equiv-text="${this.auction.name}"/>"? Purchases will be locked.</source>
   <target>Terminare "<x id="0" equiv-text="${this.auction.name}"/>"? Gli acquisti verranno bloccati.</target>
@@ -702,17 +694,9 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
   <source>you</source>
   <target>tu</target>
 </trans-unit>
-<trans-unit id="sf9e4f82a9578c4d4">
-  <source>P <x id="0" equiv-text="${agg.count}"/>/<x id="1" equiv-text="${this.auction.min_team_size}"/></source>
-  <target>G <x id="0" equiv-text="${agg.count}"/>/<x id="1" equiv-text="${this.auction.min_team_size}"/></target>
-</trans-unit>
 <trans-unit id="s958b68f03369968c">
   <source>GK <x id="0" equiv-text="${agg.gks}"/>/<x id="1" equiv-text="${this.auction.number_of_goalkeepers}"/></source>
   <target>P <x id="0" equiv-text="${agg.gks}"/>/<x id="1" equiv-text="${this.auction.number_of_goalkeepers}"/></target>
-</trans-unit>
-<trans-unit id="s18b2f546cd5bc065">
-  <source>spent <x id="0" equiv-text="${agg.spent}"/></source>
-  <target>spesi <x id="0" equiv-text="${agg.spent}"/></target>
 </trans-unit>
 <trans-unit id="s21d455c116e8e020">
   <source>Show <x id="0" equiv-text="${m.name}"/> lineup for <x id="1" equiv-text="${t.team_name}"/></source>
@@ -805,6 +789,66 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
 <trans-unit id="sc061a3826f1a8636">
   <source>Discard <x id="0" equiv-text="${name}"/>? They'll be removed from the active pool — you can restore them later.</source>
   <target>Scartare <x id="0" equiv-text="${name}"/>? Verrà rimosso dal pool attivo — potrai ripristinarlo in seguito.</target>
+</trans-unit>
+<trans-unit id="scf807051ca4b57a9">
+  <source><x id="0" equiv-text="${remainingCredits}"/> credits and <x id="1" equiv-text="${playersLeft}"/> of <x id="2" equiv-text="${playersTotal}"/> players still available for this role (<x id="3" equiv-text="${remainingPct}"/>% of your evaluated credits unspent). Full/green = market still wide open; empty/red = nearly drained.</source>
+  <target><x id="0" equiv-text="${remainingCredits}"/> crediti e <x id="1" equiv-text="${playersLeft}"/> di <x id="2" equiv-text="${playersTotal}"/> giocatori ancora disponibili per questo ruolo (<x id="3" equiv-text="${remainingPct}"/>% dei crediti valutati non spesi). Pieno/verde = mercato ancora aperto; vuoto/rosso = quasi esaurito.</target>
+</trans-unit>
+<trans-unit id="s9d3173b41f62126a">
+  <source>Put this player up for auction</source>
+  <target>Metti all’asta questo giocatore</target>
+</trans-unit>
+<trans-unit id="sbcc49bc269f72b06">
+  <source>Credits left</source>
+  <target>Crediti rimasti</target>
+</trans-unit>
+<trans-unit id="s0f854cb39bd9b089">
+  <source>Players</source>
+  <target>Giocatori</target>
+</trans-unit>
+<trans-unit id="s22705b8aa011b9a3">
+  <source>spent</source>
+  <target>spesi</target>
+</trans-unit>
+<trans-unit id="s3efa43831f5d915b">
+  <source>not evaluated</source>
+  <target>non valutato</target>
+</trans-unit>
+<trans-unit id="s1466b5317b053497">
+  <source>vs your eval: <x id="0" equiv-text="${diff &gt;= 0 ? &quot;+&quot; : &quot;&quot;}${diff}"/> cr (eval <x id="1" equiv-text="${r.scaledEval}"/>, paid <x id="2" equiv-text="${p.price}"/>)</source>
+  <target>vs la tua valutazione: <x id="0" equiv-text="${diff &gt;= 0 ? &quot;+&quot; : &quot;&quot;}${diff}"/> cr (valutazione <x id="1" equiv-text="${r.scaledEval}"/>, pagato <x id="2" equiv-text="${p.price}"/>)</target>
+</trans-unit>
+<trans-unit id="s5880f4dcd8af4dae">
+  <source>History (<x id="0" equiv-text="${this.purchases.length}"/>)</source>
+  <target>Cronologia (<x id="0" equiv-text="${this.purchases.length}"/>)</target>
+</trans-unit>
+<trans-unit id="s460fffc182c8be0a">
+  <source>All teams</source>
+  <target>Tutte le squadre</target>
+</trans-unit>
+<trans-unit id="s333dc56ddffd8ea0">
+  <source>Player</source>
+  <target>Giocatore</target>
+</trans-unit>
+<trans-unit id="sc44c4520bf226f68">
+  <source>Serie A</source>
+  <target>Serie A</target>
+</trans-unit>
+<trans-unit id="s001b106c857f4c8f">
+  <source>Eval</source>
+  <target>Val.</target>
+</trans-unit>
+<trans-unit id="sd0491b7343c440af">
+  <source>Deal</source>
+  <target>Affare</target>
+</trans-unit>
+<trans-unit id="s48e186fb300e5464">
+  <source>Time</source>
+  <target>Ora</target>
+</trans-unit>
+<trans-unit id="sc9ff841be3b471ab">
+  <source>No purchases match the filters.</source>
+  <target>Nessun acquisto corrisponde ai filtri.</target>
 </trans-unit>
 </body>
 </file>

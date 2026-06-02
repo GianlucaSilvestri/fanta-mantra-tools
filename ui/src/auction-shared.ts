@@ -91,6 +91,10 @@ export interface Purchase {
   player_id: number;
   team_id: number;
   price: number;
+  // ISO 8601 timestamps from the backend; created_at drives the
+  // purchase-history default sort (newest first).
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface ModulePrediction {

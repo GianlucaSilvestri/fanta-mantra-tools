@@ -260,8 +260,8 @@ export class AuctionOverview extends LitElement {
       >
         <div class="relative">
           <svg
-            width="104"
-            height="52"
+            width="76"
+            height="38"
             viewBox="0 0 120 60"
             fill="none"
             class="overflow-visible"

@@ -37,6 +37,21 @@ interface TeamAggregate {
   performance: Performance;
 }
 
+// Sortable columns of the purchase-history table.
+type HistSortKey = "time" | "name" | "serie" | "team" | "price" | "eval" | "deal";
+
+// One denormalized purchase-history row: the purchase joined with its
+// player + buying team, plus the precomputed eval/deal figures.
+interface HistoryRow {
+  purchase: Purchase;
+  player: PlayerRow | undefined;
+  playerName: string;
+  serieTeam: string;
+  teamName: string;
+  scaledEval: number | null;
+  performance: Performance;
+}
+
 @customElement("auction-running")
 @localized()
 export class AuctionRunning extends LitElement {
@@ -52,6 +67,15 @@ export class AuctionRunning extends LitElement {
   @state() private editTeamId: number | "" = "";
   @state() private editPrice = "";
   @state() private editError = "";
+
+  // Purchase-history table filters + sort. Independent of the per-team
+  // edit state above (which the history table reuses for inline editing).
+  @state() private histTeamFilter: number | "" = "";
+  @state() private histSerieFilter = "";
+  @state() private histRoleFilter = "";
+  @state() private histNameFilter = "";
+  @state() private histSortKey: HistSortKey = "time";
+  @state() private histSortDir: "asc" | "desc" = "desc";
 
   // Derived once per (auction|players|purchases) change so the render
   // path doesn't rebuild the player Map per team and re-sort per render.
@@ -261,6 +285,92 @@ export class AuctionRunning extends LitElement {
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  // Denormalized, filtered and sorted purchase rows for the history table.
+  private get historyRows(): HistoryRow[] {
+    const credits = this.auction.credits_per_team;
+    const playerById = new Map(this.players.map((p) => [p.id, p]));
+    const teamById = new Map(
+      (this.auction.teams ?? []).map((t) => [t.id, t]),
+    );
+    const rows: HistoryRow[] = this.purchases.map((purchase) => {
+      const player = playerById.get(purchase.player_id);
+      const scaledEval = toAuctionCredits(player?.evaluation ?? null, credits);
+      return {
+        purchase,
+        player,
+        playerName: player?.name ?? `#${purchase.player_id}`,
+        serieTeam: player?.team ?? "",
+        teamName: teamById.get(purchase.team_id)?.team_name ?? "",
+        scaledEval,
+        performance: performanceBucket(purchase.price, scaledEval ?? 0),
+      };
+    });
+
+    const name = this.histNameFilter.trim().toLowerCase();
+    const filtered = rows.filter(
+      (r) =>
+        (this.histTeamFilter === "" ||
+          r.purchase.team_id === this.histTeamFilter) &&
+        (!this.histSerieFilter || r.serieTeam === this.histSerieFilter) &&
+        (!this.histRoleFilter ||
+          (r.player?.mantra_roles.includes(this.histRoleFilter) ?? false)) &&
+        (!name || r.playerName.toLowerCase().includes(name)),
+    );
+
+    const dir = this.histSortDir === "asc" ? 1 : -1;
+    const key = this.histSortKey;
+    return filtered.sort((a, b) => {
+      switch (key) {
+        case "name":
+          return a.playerName.localeCompare(b.playerName) * dir;
+        case "serie":
+          return a.serieTeam.localeCompare(b.serieTeam) * dir;
+        case "team":
+          return a.teamName.localeCompare(b.teamName) * dir;
+        case "price":
+          return (a.purchase.price - b.purchase.price) * dir;
+        case "eval":
+          return ((a.scaledEval ?? 0) - (b.scaledEval ?? 0)) * dir;
+        case "deal":
+          return (
+            ((a.scaledEval ?? 0) - a.purchase.price -
+              ((b.scaledEval ?? 0) - b.purchase.price)) *
+            dir
+          );
+        case "time":
+        default:
+          return (
+            (a.purchase.created_at ?? "").localeCompare(
+              b.purchase.created_at ?? "",
+            ) * dir
+          );
+      }
+    });
+  }
+
+  private setHistSort(key: HistSortKey): void {
+    if (this.histSortKey === key) {
+      this.histSortDir = this.histSortDir === "asc" ? "desc" : "asc";
+    } else {
+      this.histSortKey = key;
+      // Text columns default ascending; numeric/time columns descending.
+      this.histSortDir = key === "name" || key === "serie" || key === "team"
+        ? "asc"
+        : "desc";
+    }
+  }
+
+  // Short HH:MM for the history "Time" column; "—" when missing/unparseable.
+  private formatPurchaseTime(iso: string | null): string {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   private renderPerformanceArrow(agg: TeamAggregate) {
@@ -488,6 +598,248 @@ export class AuctionRunning extends LitElement {
     `;
   }
 
+  // Sortable column header for the history table.
+  private histHeader(
+    label: string,
+    key: HistSortKey,
+    align: "left" | "right" | "center" = "left",
+  ) {
+    const active = this.histSortKey === key;
+    const arrow = active ? (this.histSortDir === "asc" ? "↑" : "↓") : "↕";
+    const alignCls =
+      align === "right"
+        ? " text-right"
+        : align === "center"
+          ? " text-center"
+          : " text-left";
+    return html`
+      <th
+        @click=${() => this.setHistSort(key)}
+        class=${"sticky top-0 z-10 bg-surface-2 cursor-pointer select-none px-3 py-[7px] text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap border-b border-line transition-colors " +
+        (active ? "text-fg" : "text-fg-muted hover:text-fg") +
+        alignCls}
+      >
+        ${label}
+        <span
+          class=${"inline-block ml-1 " +
+          (active ? "opacity-100 text-accent" : "opacity-40")}
+        >${arrow}</span>
+      </th>
+    `;
+  }
+
+  private renderHistoryRow(r: HistoryRow, teams: Team[]) {
+    const p = r.purchase;
+    if (this.editingPlayerId === p.player_id) {
+      return html`
+        <tr class="border-b border-line last:border-b-0 bg-app/40">
+          <td class="px-3 py-2 text-[12px] font-semibold">${r.playerName}</td>
+          <td class="px-3 py-2" colspan="4">
+            <div class="flex gap-1.5 items-center">
+              <select
+                .value=${String(this.editTeamId)}
+                @change=${(e: Event) => {
+                  const v = (e.target as HTMLSelectElement).value;
+                  this.editTeamId = v ? Number.parseInt(v, 10) : "";
+                }}
+                class="flex-1 min-w-0 bg-app border border-line text-fg rounded px-2 py-1 text-[12px] focus:outline-none focus:border-accent"
+              >
+                ${teams.map(
+                  (t) => html`<option value=${t.id}>${t.team_name}</option>`,
+                )}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                .value=${this.editPrice}
+                @input=${(e: Event) =>
+                  (this.editPrice = (e.target as HTMLInputElement).value)}
+                class="w-[72px] shrink-0 bg-app border border-line text-fg rounded px-2 py-1 text-[12px] text-right tabular-nums focus:outline-none focus:border-accent"
+              />
+            </div>
+            ${this.editError
+              ? html`<p class="text-danger text-[11px] m-0 mt-1">
+                  ${this.editError}
+                </p>`
+              : nothing}
+          </td>
+          <td class="px-3 py-2 text-right" colspan="3">
+            <div class="flex gap-1.5 justify-end">
+              <button
+                type="button"
+                @click=${() => this.saveEdit()}
+                class="px-2 py-1 rounded text-[11px] font-semibold bg-accent text-black border border-accent hover:bg-[#19ff22]"
+              >${msg("OK")}</button>
+              <button
+                type="button"
+                @click=${() => this.cancelEdit()}
+                class="px-2 py-1 rounded text-[11px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover"
+              >${msg("X")}</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+    const choice = PERFORMANCE_ICON[r.performance];
+    const diff = (r.scaledEval ?? 0) - p.price;
+    const dealTitle =
+      r.performance === "none"
+        ? msg("not evaluated")
+        : msg(
+            str`vs your eval: ${diff >= 0 ? "+" : ""}${diff} cr (eval ${r.scaledEval}, paid ${p.price})`,
+          );
+    return html`
+      <tr class="group border-b border-line last:border-b-0 hover:bg-surface-hover">
+        <td class="px-3 py-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[12px] font-semibold">${r.playerName}</span>
+            ${r.player ? renderRoleChips(r.player.mantra_roles) : nothing}
+          </div>
+        </td>
+        <td class="px-3 py-1.5 text-[12px] text-fg-dim">${r.serieTeam || "—"}</td>
+        <td class="px-3 py-1.5 text-[12px]">${r.teamName || "—"}</td>
+        <td class="px-3 py-1.5 text-[12px] text-right tabular-nums font-semibold">
+          ${p.price}
+        </td>
+        <td class="px-3 py-1.5 text-[12px] text-right tabular-nums text-fg-dim">
+          ${r.scaledEval ?? "—"}
+        </td>
+        <td class="px-3 py-1.5 text-right">
+          <span class=${"inline-flex justify-end " + choice.cls} title=${dealTitle}
+            >${icon(choice.name, { size: 14 })}</span
+          >
+        </td>
+        <td class="px-3 py-1.5 text-[11px] text-right tabular-nums text-fg-muted whitespace-nowrap">
+          ${this.formatPurchaseTime(p.created_at)}
+        </td>
+        <td class="px-3 py-1.5 text-right whitespace-nowrap">
+          <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              type="button"
+              aria-label=${msg("Edit")}
+              title=${msg("Edit")}
+              @click=${() => this.startEdit(p)}
+              class="w-6 h-6 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface"
+            >${icon("pencil", { size: 12 })}</button>
+            <button
+              type="button"
+              aria-label=${msg("Release")}
+              title=${msg("Release")}
+              @click=${() => this.deletePurchase(p)}
+              class="w-6 h-6 grid place-items-center rounded text-danger hover:bg-danger/10"
+            >${icon("trash", { size: 12 })}</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  private renderHistory() {
+    if (this.purchases.length === 0) return nothing;
+    const teams = this.auction.teams ?? [];
+    const rows = this.historyRows;
+    // Serie A clubs that actually appear among the purchases — keeps the
+    // dropdown short and relevant.
+    const serieTeams = [
+      ...new Set(
+        this.purchases
+          .map((p) => this.players.find((pl) => pl.id === p.player_id)?.team)
+          .filter((t): t is string => !!t),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
+    const selectCls =
+      "bg-app border border-line text-fg rounded px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-accent";
+    return html`
+      <section class="mt-6">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-fg-muted">${icon("file", { size: 14 })}</span>
+          <h2 class="text-[12px] font-bold uppercase tracking-wider text-fg-muted m-0">
+            ${msg(str`History (${this.purchases.length})`)}
+          </h2>
+        </div>
+        <div class="rounded-xl border border-line bg-surface overflow-hidden">
+          <div class="flex flex-wrap gap-2 items-center px-3 py-2.5 border-b border-line">
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none">
+                ${icon("search", { size: 14 })}
+              </span>
+              <input
+                type="text"
+                placeholder=${msg("Search player…")}
+                .value=${this.histNameFilter}
+                @input=${(e: Event) =>
+                  (this.histNameFilter = (e.target as HTMLInputElement).value)}
+                class="bg-app border border-line text-fg rounded px-3 py-1.5 pl-8 text-[12px] min-w-[180px] focus:outline-none focus:border-accent"
+              />
+            </div>
+            <select
+              .value=${this.histRoleFilter}
+              @change=${(e: Event) =>
+                (this.histRoleFilter = (e.target as HTMLSelectElement).value)}
+              class=${selectCls}
+            >
+              <option value="">${msg("All roles")}</option>
+              ${ROLE_ORDER.map((r) => html`<option value=${r}>${r}</option>`)}
+            </select>
+            <select
+              .value=${String(this.histTeamFilter)}
+              @change=${(e: Event) => {
+                const v = (e.target as HTMLSelectElement).value;
+                this.histTeamFilter = v ? Number.parseInt(v, 10) : "";
+              }}
+              class=${selectCls}
+            >
+              <option value="">${msg("All teams")}</option>
+              ${teams.map(
+                (t) => html`<option value=${t.id}>${t.team_name}</option>`,
+              )}
+            </select>
+            <select
+              .value=${this.histSerieFilter}
+              @change=${(e: Event) =>
+                (this.histSerieFilter = (e.target as HTMLSelectElement).value)}
+              class=${selectCls}
+            >
+              <option value="">${msg("All Serie A teams")}</option>
+              ${serieTeams.map((t) => html`<option value=${t}>${t}</option>`)}
+            </select>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-left">
+              <thead>
+                <tr>
+                  ${this.histHeader(msg("Player"), "name")}
+                  ${this.histHeader(msg("Serie A"), "serie")}
+                  ${this.histHeader(msg("Team"), "team")}
+                  ${this.histHeader(msg("Price"), "price", "right")}
+                  ${this.histHeader(msg("Eval"), "eval", "right")}
+                  ${this.histHeader(msg("Deal"), "deal", "right")}
+                  ${this.histHeader(msg("Time"), "time", "right")}
+                  <th
+                    class="sticky top-0 z-10 bg-surface-2 px-3 py-[7px] border-b border-line"
+                  ></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.length === 0
+                  ? html`<tr>
+                      <td
+                        colspan="8"
+                        class="px-3 py-4 text-center text-[12px] text-fg-muted"
+                      >
+                        ${msg("No purchases match the filters.")}
+                      </td>
+                    </tr>`
+                  : rows.map((r) => this.renderHistoryRow(r, teams))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   override render() {
     const teams = this.auction.teams ?? [];
     return html`
@@ -498,6 +850,7 @@ export class AuctionRunning extends LitElement {
         </div>
       </section>
       ${this.renderDiscardedPanel()}
+      ${this.renderHistory()}
       ${this.modules.length > 0
         ? html`
             <section class="mt-6">
