@@ -637,7 +637,6 @@ export class AuctionRunning extends LitElement {
           <td class="px-3 py-2" colspan="4">
             <div class="flex gap-1.5 items-center">
               <select
-                .value=${String(this.editTeamId)}
                 @change=${(e: Event) => {
                   const v = (e.target as HTMLSelectElement).value;
                   this.editTeamId = v ? Number.parseInt(v, 10) : "";
@@ -645,7 +644,10 @@ export class AuctionRunning extends LitElement {
                 class="flex-1 min-w-0 bg-app border border-line text-fg rounded px-2 py-1 text-[12px] focus:outline-none focus:border-accent"
               >
                 ${teams.map(
-                  (t) => html`<option value=${t.id}>${t.team_name}</option>`,
+                  (t) => html`<option
+                    value=${t.id}
+                    ?selected=${t.id === this.editTeamId}
+                  >${t.team_name}</option>`,
                 )}
               </select>
               <input
