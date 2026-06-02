@@ -218,7 +218,13 @@ export class AuctionOverview extends LitElement {
     const title = msg(
       str`${remainingCredits} credits and ${playersLeft} of ${playersTotal} players still available for this role (${remainingPct}% of your evaluated credits unspent). Full/green = market still wide open; empty/red = nearly drained.`,
     );
-    const label = html`
+    // Percentage left overlays inside the bowl; the concrete credits +
+    // players figures sit below the gauge.
+    const label = html`<span
+      class="font-semibold uppercase tracking-wider text-fg-dim text-[10px]"
+      >${remainingPct}%</span
+    >`;
+    const caption = html`
       <span class="flex items-center gap-0.5 text-warn">
         ${icon("coins", { size: 12 })}
         <span class="text-fg-dim font-semibold">${remainingCredits}</span>
@@ -228,19 +234,18 @@ export class AuctionOverview extends LitElement {
         <span class="text-fg-dim font-semibold">${playersLeft}</span>
       </span>
     `;
-    const caption = msg(str`left ${remainingPct}%`);
     return this.renderGaugeShell(hue, remainingPct, label, caption, title);
   }
 
   // Shared semicircular speedometer. `hue` null → inert/greyed arc
   // (loading or no evaluated players); otherwise the fill arc is drawn
-  // to `pct` (0..100) in hsl(hue,…). `label` (credits + players left)
-  // overlays inside the arc bowl; `caption` ("left N%") sits under it.
+  // to `pct` (0..100) in hsl(hue,…). `label` ("left N%") overlays inside
+  // the arc bowl; `caption` (credits + players left) sits under it.
   private renderGaugeShell(
     hue: number | null,
     pct: number,
     label: unknown,
-    caption: string | null,
+    caption: unknown,
     title: string,
   ) {
     // Geometry: 120×60 viewBox, semicircle radius 50 with baseline at
@@ -287,7 +292,7 @@ export class AuctionOverview extends LitElement {
         </div>
         ${caption
           ? html`<div
-              class="-mt-0.5 text-[10px] uppercase tracking-wider text-fg-muted tabular-nums"
+              class="-mt-0.5 flex items-center justify-center gap-2.5 text-[11px] tabular-nums"
             >${caption}</div>`
           : nothing}
       </div>

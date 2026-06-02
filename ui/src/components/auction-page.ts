@@ -682,20 +682,20 @@ export class AuctionPage extends LitElement {
             class="w-7 h-7 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface-hover shrink-0"
           >${icon("x", { size: 12 })}</button>
         </div>
+        <select
+          .value=${String(this.buyTeamId)}
+          @change=${(e: Event) => {
+            const v = (e.target as HTMLSelectElement).value;
+            this.buyTeamId = v ? Number.parseInt(v, 10) : "";
+          }}
+          class="w-full min-w-0 bg-app border border-line text-fg rounded px-2 py-1.5 text-[12px] focus:outline-none focus:border-accent"
+        >
+          <option value="">${msg("— team —")}</option>
+          ${teams.map(
+            (t) => html`<option value=${t.id}>${t.team_name}</option>`,
+          )}
+        </select>
         <div class="flex gap-1.5 items-center">
-          <select
-            .value=${String(this.buyTeamId)}
-            @change=${(e: Event) => {
-              const v = (e.target as HTMLSelectElement).value;
-              this.buyTeamId = v ? Number.parseInt(v, 10) : "";
-            }}
-            class="flex-1 min-w-0 bg-app border border-line text-fg rounded px-2 py-1.5 text-[12px] focus:outline-none focus:border-accent"
-          >
-            <option value="">${msg("— team —")}</option>
-            ${teams.map(
-              (t) => html`<option value=${t.id}>${t.team_name}</option>`,
-            )}
-          </select>
           <input
             type="number"
             min="0"
@@ -704,7 +704,7 @@ export class AuctionPage extends LitElement {
             @input=${(e: Event) =>
               (this.buyPrice = (e.target as HTMLInputElement).value)}
             placeholder=${msg("Price")}
-            class="w-[68px] shrink-0 bg-app border border-line text-fg rounded px-2 py-1.5 text-[12px] text-right tabular-nums focus:outline-none focus:border-accent"
+            class="flex-1 min-w-0 bg-app border border-line text-fg rounded px-2 py-1.5 text-[12px] text-right tabular-nums focus:outline-none focus:border-accent"
           />
           <button
             type="button"
