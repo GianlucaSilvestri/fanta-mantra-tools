@@ -736,7 +736,6 @@ export class AuctionRunning extends LitElement {
   }
 
   private renderHistory() {
-    if (this.purchases.length === 0) return nothing;
     const teams = this.auction.teams ?? [];
     const rows = this.historyRows;
     // Serie A clubs that actually appear among the purchases — keeps the
