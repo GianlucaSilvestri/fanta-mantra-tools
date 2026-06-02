@@ -751,12 +751,9 @@ export class AuctionRunning extends LitElement {
       "bg-app border border-line text-fg rounded px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-accent";
     return html`
       <section class="mt-6">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-fg-muted">${icon("file", { size: 14 })}</span>
-          <h2 class="text-[12px] font-bold uppercase tracking-wider text-fg-muted m-0">
-            ${msg(str`History (${this.purchases.length})`)}
-          </h2>
-        </div>
+        <h2 class="text-[16px] font-bold m-0 mb-3">
+          ${msg(str`History (${this.purchases.length})`)}
+        </h2>
         <div class="rounded-xl border border-line bg-surface overflow-hidden">
           <div class="flex flex-wrap gap-2 items-center px-3 py-2.5 border-b border-line">
             <div class="relative">
@@ -804,7 +801,7 @@ export class AuctionRunning extends LitElement {
               ${serieTeams.map((t) => html`<option value=${t}>${t}</option>`)}
             </select>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-auto max-h-[360px]">
             <table class="w-full border-collapse text-left">
               <thead>
                 <tr>
