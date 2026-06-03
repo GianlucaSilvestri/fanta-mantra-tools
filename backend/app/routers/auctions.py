@@ -1,4 +1,5 @@
 import csv
+import difflib
 import io
 import secrets
 from typing import Literal
@@ -1290,6 +1291,268 @@ def delete_purchase(auction_id: int, player_id: int) -> dict:
                 )
             session.delete(purchase)
     return {"deleted": player_id}
+
+
+# ---------------------------------------------------------------------
+# Roster CSV — the league's flat `$,$,$`-separated exchange format
+# ---------------------------------------------------------------------
+#
+# Headerless CSV: a `$,$,$` separator line precedes each team block, then
+# one `team_name,player_id,cost` row per purchase. `cost` is in auction
+# credits (same scale as AuctionPurchase.price). Used to move a full set
+# of rosters between auctions / league members without re-keying sales.
+
+# A roster separator row is three literal "$" cells.
+ROSTER_SEPARATOR = ["$", "$", "$"]
+
+
+def _bind_teams_by_name(
+    file_names: list[str], teams: list[AuctionTeam]
+) -> dict[str, AuctionTeam]:
+    """Greedy one-to-one binding of file team names to auction teams.
+
+    For each file name (in order) claim the still-unbound auction team
+    with the highest case-insensitive similarity. The caller guarantees
+    ``len(file_names) == len(teams)`` so every name binds to exactly one
+    team.
+    """
+    remaining = list(teams)
+    mapping: dict[str, AuctionTeam] = {}
+    for name in file_names:
+        norm = name.strip().lower()
+        best_idx = max(
+            range(len(remaining)),
+            key=lambda i: difflib.SequenceMatcher(
+                None, norm, remaining[i].team_name.strip().lower()
+            ).ratio(),
+        )
+        mapping[name] = remaining.pop(best_idx)
+    return mapping
+
+
+@router.get("/{auction_id}/purchases/export")
+def export_rosters(auction_id: int) -> Response:
+    """Export this auction's purchases as a `$,$,$`-separated roster CSV.
+
+    Every team gets a separator line (even empty ones, so the team count
+    round-trips on import), followed by one `team_name,player_id,cost`
+    row per purchase. Available once purchases exist — i.e. while
+    IN_PROGRESS or after the auction is TERMINATED (only INITIAL is
+    rejected, since it has no purchases yet).
+    """
+    with SessionLocal() as session:
+        auction = session.get(Auction, auction_id)
+        if auction is None:
+            raise HTTPException(status_code=404, detail=f"auction {auction_id} not found")
+        if auction.status == AuctionStatus.INITIAL:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"auction is {auction.status.value}; rosters can only be "
+                    f"exported once the auction is IN_PROGRESS or TERMINATED"
+                ),
+            )
+        teams = _ordered_teams(session, auction_id)
+
+        purchases = list(
+            session.execute(
+                select(AuctionPurchase)
+                .where(AuctionPurchase.auction_id == auction_id)
+                .order_by(AuctionPurchase.player_id.desc())
+            ).scalars()
+        )
+
+    by_team: dict[int, list[AuctionPurchase]] = {t.id: [] for t in teams}
+    for p in purchases:
+        by_team.setdefault(p.team_id, []).append(p)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for t in teams:
+        writer.writerow(ROSTER_SEPARATOR)
+        for p in by_team.get(t.id, []):
+            writer.writerow([t.team_name, p.player_id, p.price])
+
+    filename = f"{_slugify_for_filename(auction.name)}_rosters.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{auction_id}/purchases/import")
+async def import_rosters(auction_id: int, file: UploadFile = File(...)) -> dict:
+    """Bulk-seed purchases from a `$,$,$`-separated roster CSV.
+
+    Preconditions: the auction is IN_PROGRESS and has zero purchases
+    (clean slate). Abort conditions: the file's distinct team count must
+    equal the auction's team count, and no team's summed cost may exceed
+    `credits_per_team`. File team names are bound to auction teams by
+    greedy highest-fuzzy-similarity in file order. Unknown player_ids and
+    in-file duplicate player_ids are skipped and reported.
+    """
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    contents = await file.read(MAX_CSV_BYTES + 1)
+    if len(contents) > MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_CSV_BYTES // (1024 * 1024)} MB upload limit",
+        )
+    try:
+        text_body = contents.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV must be UTF-8 encoded: {exc}",
+        ) from exc
+
+    reader = csv.reader(io.StringIO(text_body))
+
+    # Parsed (team_name, player_id, cost) rows in file order, plus the
+    # distinct team names in first-occurrence order.
+    parsed: list[tuple[str, int, int]] = []
+    file_team_order: list[str] = []
+    seen_teams: set[str] = set()
+    invalid_rows: list[str] = []
+
+    for line_no, raw in enumerate(reader, start=1):
+        # Tolerate blank lines and separator rows.
+        if not raw or all(cell.strip() == "" for cell in raw):
+            continue
+        if all(cell.strip() == "$" for cell in raw):
+            continue
+        if len(raw) != 3:
+            invalid_rows.append(
+                f"line {line_no}: expected 3 columns, got {len(raw)}"
+            )
+            continue
+        team_name = raw[0].strip()
+        raw_pid = raw[1].strip()
+        raw_cost = raw[2].strip()
+        if not team_name:
+            invalid_rows.append(f"line {line_no}: missing team name")
+            continue
+        try:
+            pid = int(raw_pid)
+        except ValueError:
+            invalid_rows.append(f"line {line_no}: non-integer player_id {raw_pid!r}")
+            continue
+        try:
+            cost = int(raw_cost)
+        except ValueError:
+            invalid_rows.append(f"line {line_no}: non-integer cost {raw_cost!r}")
+            continue
+        if cost < 0:
+            invalid_rows.append(f"line {line_no}: cost must be >= 0 (got {cost})")
+            continue
+        parsed.append((team_name, pid, cost))
+        if team_name not in seen_teams:
+            seen_teams.add(team_name)
+            file_team_order.append(team_name)
+
+    if invalid_rows:
+        shown = invalid_rows[:20]
+        summary = "CSV has invalid rows: " + "; ".join(shown)
+        if len(invalid_rows) > len(shown):
+            summary += f" (+{len(invalid_rows) - len(shown)} more)"
+        raise HTTPException(status_code=400, detail=summary)
+
+    with SessionLocal() as session:
+        with session.begin():
+            auction = _require_running_auction(session, auction_id)
+            teams = _ordered_teams(session, auction_id)
+
+            existing_purchases = int(
+                session.execute(
+                    select(func.count(AuctionPurchase.player_id)).where(
+                        AuctionPurchase.auction_id == auction_id
+                    )
+                ).scalar_one()
+            )
+            if existing_purchases > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"auction already has {existing_purchases} purchases; "
+                        f"import requires an empty auction"
+                    ),
+                )
+
+            if len(file_team_order) != len(teams):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"file has {len(file_team_order)} teams but auction has "
+                        f"{len(teams)}; team counts must match"
+                    ),
+                )
+
+            mapping = _bind_teams_by_name(file_team_order, teams)
+
+            # Resolve the frozen player pool for this auction; unknown ids
+            # are skipped. Dedupe player_ids across the whole file (the
+            # (auction_id, player_id) PK forbids buying a player twice).
+            pool_ids: set[int] = set(
+                session.execute(
+                    select(AuctionPlayer.player_id).where(
+                        AuctionPlayer.auction_id == auction_id
+                    )
+                ).scalars()
+            )
+
+            to_insert: list[tuple[int, int, int]] = []  # (team_id, player_id, cost)
+            unknown: list[int] = []
+            duplicates: list[int] = []
+            spend_by_team: dict[int, int] = {t.id: 0 for t in teams}
+            claimed: set[int] = set()
+
+            for team_name, pid, cost in parsed:
+                if pid not in pool_ids:
+                    unknown.append(pid)
+                    continue
+                if pid in claimed:
+                    duplicates.append(pid)
+                    continue
+                claimed.add(pid)
+                team = mapping[team_name]
+                spend_by_team[team.id] += cost
+                to_insert.append((team.id, pid, cost))
+
+            # Per-team budget — the only spend-related abort condition.
+            for t in teams:
+                if spend_by_team[t.id] > auction.credits_per_team:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"team {t.team_name!r} total cost "
+                            f"{spend_by_team[t.id]} exceeds credits_per_team "
+                            f"{auction.credits_per_team}"
+                        ),
+                    )
+
+            if to_insert:
+                session.execute(
+                    pg_insert(AuctionPurchase),
+                    [
+                        {
+                            "auction_id": auction_id,
+                            "player_id": pid,
+                            "team_id": team_id,
+                            "price": cost,
+                        }
+                        for team_id, pid, cost in to_insert
+                    ],
+                )
+
+    return {
+        "imported": len(to_insert),
+        "unknown_player_ids": unknown,
+        "skipped_duplicates": duplicates,
+        "team_mapping": {name: team.team_name for name, team in mapping.items()},
+    }
 
 
 @router.patch("/{auction_id}/players/{player_id}/discard")

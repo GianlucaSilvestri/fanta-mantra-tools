@@ -247,6 +247,34 @@ export function roleSortKey(roles: string[]): number {
   return min;
 }
 
+// A player's roles as ROLE_ORDER indices sorted DESCENDING — i.e. their
+// heaviest / most-attacking role first.
+function roleSeqDesc(roles: string[]): number[] {
+  return roles
+    .map((r) => {
+      const i = ROLE_ORDER.indexOf(r);
+      return i >= 0 ? i : ROLE_ORDER.length;
+    })
+    .sort((a, b) => b - a);
+}
+
+// Order two players "most defensive → most attacking" (ascending). A
+// player is ranked by their HEAVIEST role first: a `W/A` sorts below a
+// pure `T` because `A` outranks `T`, and a `C/T` sorts below a pure `C`
+// because `T` outranks `C`. Ties on the top role fall through to the next
+// role; when one role set is a prefix of the other the shorter (purer,
+// more-attacking) set sorts later. Returns <0 / 0 / >0; negate it for a
+// most-attacking-first ordering.
+export function compareRoles(a: string[], b: string[]): number {
+  const ka = roleSeqDesc(a);
+  const kb = roleSeqDesc(b);
+  const n = Math.min(ka.length, kb.length);
+  for (let i = 0; i < n; i++) {
+    if (ka[i] !== kb[i]) return ka[i] - kb[i];
+  }
+  return kb.length - ka.length;
+}
+
 export function renderRoleChips(roles: string[]) {
   return html`
     <span class="inline-flex items-center gap-1 align-middle">

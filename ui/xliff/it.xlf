@@ -257,15 +257,6 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
   <source>Enter the maximum credits you'd spend on each player. Saves automatically.</source>
   <target>Inserisci i crediti massimi che spenderesti per ogni giocatore. Il salvataggio è automatico.</target>
 </trans-unit>
-<trans-unit id="s764ba3b9855fe35d">
-  <source>Auction complete</source>
-  <target>Asta completata</target>
-</trans-unit>
-<trans-unit id="hd3fc62d4b6ab35bc">
-  <source>Final rosters and summary stats for
-          <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/> will appear here. Designs to be defined.</source>
-  <target>Le rose finali e le statistiche di riepilogo per <x id="0" equiv-text="&lt;b&gt;${this.auction.name}&lt;/b&gt;"/> appariranno qui. Design da definire.</target>
-</trans-unit>
 <trans-unit id="s1d1b04f2d8d51dad">
   <source>Created <x id="0" equiv-text="${formatDate(a.created_at)}"/></source>
   <target>Creata il <x id="0" equiv-text="${formatDate(a.created_at)}"/></target>
@@ -465,22 +456,6 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
 <trans-unit id="sb98fdf423ff4086a">
   <source>or click to browse — .xlsx only</source>
   <target>oppure clicca per cercarlo — solo .xlsx</target>
-</trans-unit>
-<trans-unit id="s70ea6595551323d5">
-  <source>Pick which team is yours before saving</source>
-  <target>Scegli quale squadra è la tua prima di salvare</target>
-</trans-unit>
-<trans-unit id="sb167ccda40068c50">
-  <source>Pick which team is yours — required to start the auction.</source>
-  <target>Scegli quale squadra è la tua — necessario per avviare l'asta.</target>
-</trans-unit>
-<trans-unit id="s13f598e60bbc05f4">
-  <source>Mark this as your team</source>
-  <target>Segna questa come la tua squadra</target>
-</trans-unit>
-<trans-unit id="sda4e15a2a78ede96">
-  <source>mine</source>
-  <target>mia</target>
 </trans-unit>
 <trans-unit id="s2c0d81eba6c19516">
   <source>Auction type</source>
@@ -849,6 +824,52 @@ I giocatori presenti nel CSV verranno sovrascritti; gli altri restano invariati.
 <trans-unit id="sc9ff841be3b471ab">
   <source>No purchases match the filters.</source>
   <target>Nessun acquisto corrisponde ai filtri.</target>
+</trans-unit>
+<trans-unit id="s0f860b3276194c5f">
+  <source>No discarded players.</source>
+  <target>Nessun giocatore scartato.</target>
+</trans-unit>
+<trans-unit id="s4e8338b47f26b7b8">
+  <source>Add at least one team — the first one is yours</source>
+  <target>Aggiungi almeno una squadra — la prima è la tua</target>
+</trans-unit>
+<trans-unit id="s3ac2bbbe7531356b">
+  <source>The first team (green) is yours.</source>
+  <target>La prima squadra (in verde) è la tua.</target>
+</trans-unit>
+<trans-unit id="s1f242addb4adc913">
+  <source>Import rosters from "<x id="0" equiv-text="${file.name}"/>"?
+This bulk-creates purchases and requires an auction with no purchases yet.</source>
+  <target>Importare le rose da "<x id="0" equiv-text="${file.name}"/>"?
+Questa operazione crea gli acquisti in blocco e richiede un'asta senza acquisti.</target>
+</trans-unit>
+<trans-unit id="s62348f62b31e6a1f">
+  <source> (1 row skipped)</source>
+  <target> (1 riga saltata)</target>
+</trans-unit>
+<trans-unit id="s09cc08e46b7279a1">
+  <source> (<x id="0" equiv-text="${skipped}"/> rows skipped)</source>
+  <target> (<x id="0" equiv-text="${skipped}"/> righe saltate)</target>
+</trans-unit>
+<trans-unit id="sa00828abc46670dd">
+  <source>Imported 1 purchase.<x id="0" equiv-text="${skippedNote}"/></source>
+  <target>Importato 1 acquisto.<x id="0" equiv-text="${skippedNote}"/></target>
+</trans-unit>
+<trans-unit id="sb3901f6a80d00d77">
+  <source>Imported <x id="0" equiv-text="${imported}"/> purchases.<x id="1" equiv-text="${skippedNote}"/></source>
+  <target>Importati <x id="0" equiv-text="${imported}"/> acquisti.<x id="1" equiv-text="${skippedNote}"/></target>
+</trans-unit>
+<trans-unit id="sce245c8be33af9aa">
+  <source>Import is only available before any player has been bought</source>
+  <target>L'importazione è disponibile solo prima che venga acquistato qualsiasi giocatore</target>
+</trans-unit>
+<trans-unit id="s9e765273de90025c">
+  <source>Import rosters</source>
+  <target>Importa rose</target>
+</trans-unit>
+<trans-unit id="s1d617a8d57a626c7">
+  <source>Export rosters</source>
+  <target>Esporta rose</target>
 </trans-unit>
 </body>
 </file>

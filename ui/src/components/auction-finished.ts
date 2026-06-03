@@ -1,18 +1,25 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { localized, msg } from "@lit/localize";
+import { localized } from "@lit/localize";
 
-import { icon } from "../icons";
-
-interface Auction {
-  id: number;
-  name: string;
-}
+import {
+  type Auction,
+  type ModulePrediction,
+  type PlayerRow,
+  type Purchase,
+} from "../auction-shared";
+import "./auction-board";
 
 @customElement("auction-finished")
 @localized()
 export class AuctionFinished extends LitElement {
   @property({ attribute: false }) auction!: Auction;
+  @property({ attribute: false }) players: PlayerRow[] = [];
+  @property({ attribute: false }) purchases: Purchase[] = [];
+  @property({ attribute: false }) modulePredictions: Record<
+    number,
+    ModulePrediction[]
+  > = {};
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -20,18 +27,13 @@ export class AuctionFinished extends LitElement {
 
   override render() {
     return html`
-      <div class="rounded-xl border border-line bg-surface text-center py-16 px-6">
-        <div
-          class="w-14 h-14 grid place-items-center mx-auto mb-3.5 rounded-xl border border-line bg-surface text-accent"
-        >${icon("check", { size: 22 })}</div>
-        <h3 class="text-[18px] font-bold text-fg m-0 mb-1.5">
-          ${msg("Auction complete")}
-        </h3>
-        <p class="text-[13px] text-fg-dim max-w-[360px] mx-auto m-0">
-          ${msg(html`Final rosters and summary stats for
-          <b>${this.auction.name}</b> will appear here. Designs to be defined.`)}
-        </p>
-      </div>
+      <auction-board
+        .auction=${this.auction}
+        .players=${this.players}
+        .purchases=${this.purchases}
+        .modulePredictions=${this.modulePredictions}
+        .readonly=${true}
+      ></auction-board>
     `;
   }
 }

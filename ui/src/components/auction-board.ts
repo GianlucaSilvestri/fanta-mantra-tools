@@ -9,8 +9,8 @@ import {
   GK_ROLE,
   PERFORMANCE_ICON,
   performanceBucket,
+  compareRoles,
   renderRoleChips,
-  roleSortKey,
   ROLE_ORDER,
   toAuctionCredits,
   type Auction,
@@ -52,9 +52,13 @@ interface HistoryRow {
   performance: Performance;
 }
 
-@customElement("auction-running")
+// The teams board + purchase history, shared by the live-auction view
+// (editable) and the finished view (`readonly`). In readonly mode every
+// mutating affordance — inline edit, release, restore — is suppressed;
+// the same layout and derived figures render as a static summary.
+@customElement("auction-board")
 @localized()
-export class AuctionRunning extends LitElement {
+export class AuctionBoard extends LitElement {
   @property({ attribute: false }) auction!: Auction;
   @property({ attribute: false }) players: PlayerRow[] = [];
   @property({ attribute: false }) purchases: Purchase[] = [];
@@ -62,6 +66,8 @@ export class AuctionRunning extends LitElement {
     number,
     ModulePrediction[]
   > = {};
+  // When true, render as a read-only summary (no edit/release/restore).
+  @property({ type: Boolean }) readonly = false;
 
   @state() private editingPlayerId: number | null = null;
   @state() private editTeamId: number | "" = "";
@@ -163,10 +169,14 @@ export class AuctionRunning extends LitElement {
     }
     for (const agg of byTeam.values()) {
       agg.rows.sort((a, b) => {
-        const ar = a.player ? roleSortKey(a.player.mantra_roles) : ROLE_ORDER.length;
-        const br = b.player ? roleSortKey(b.player.mantra_roles) : ROLE_ORDER.length;
-        if (ar !== br) return ar - br;
-        return (a.player?.name ?? "").localeCompare(b.player?.name ?? "");
+        // Players without a snapshot sort last.
+        if (!a.player || !b.player) {
+          return (a.player ? 0 : 1) - (b.player ? 0 : 1);
+        }
+        // Most defensive → most attacking; a C/T sorts below a pure C.
+        const c = compareRoles(a.player.mantra_roles, b.player.mantra_roles);
+        if (c !== 0) return c;
+        return a.player.name.localeCompare(b.player.name);
       });
       agg.performance = performanceBucket(agg.evalSpent, agg.evalExpected);
     }
@@ -199,6 +209,7 @@ export class AuctionRunning extends LitElement {
   }
 
   private async restorePlayer(player: PlayerRow): Promise<void> {
+    if (this.readonly) return;
     try {
       const res = await fetch(
         `${BACKEND_URL}/auctions/${this.auction.id}/players/${player.id}/discard`,
@@ -219,6 +230,7 @@ export class AuctionRunning extends LitElement {
   }
 
   private startEdit(p: Purchase): void {
+    if (this.readonly) return;
     this.editingPlayerId = p.player_id;
     this.editTeamId = p.team_id;
     this.editPrice = String(p.price);
@@ -265,6 +277,7 @@ export class AuctionRunning extends LitElement {
   }
 
   private async deletePurchase(p: Purchase): Promise<void> {
+    if (this.readonly) return;
     const player = this.players.find((pl) => pl.id === p.player_id);
     const playerName = player?.name ?? `#${p.player_id}`;
     if (
@@ -486,7 +499,7 @@ export class AuctionRunning extends LitElement {
     player: PlayerRow | undefined,
     teams: Team[],
   ) {
-    if (this.editingPlayerId === purchase.player_id) {
+    if (!this.readonly && this.editingPlayerId === purchase.player_id) {
       return html`
         <div class="px-2 py-2 border-b border-line last:border-b-0 flex flex-col gap-1.5 bg-app/40">
           <div class="text-[12px] font-semibold truncate">
@@ -542,57 +555,63 @@ export class AuctionRunning extends LitElement {
           </div>
         </div>
         <div class="text-[12px] tabular-nums font-semibold">${purchase.price}</div>
-        <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            aria-label=${msg("Edit")}
-            title=${msg("Edit")}
-            @click=${() => this.startEdit(purchase)}
-            class="w-6 h-6 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface"
-          >${icon("pencil", { size: 12 })}</button>
-          <button
-            type="button"
-            aria-label=${msg("Release")}
-            title=${msg("Release")}
-            @click=${() => this.deletePurchase(purchase)}
-            class="w-6 h-6 grid place-items-center rounded text-danger hover:bg-danger/10"
-          >${icon("trash", { size: 12 })}</button>
-        </div>
+        ${this.readonly
+          ? nothing
+          : html`<div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                aria-label=${msg("Edit")}
+                title=${msg("Edit")}
+                @click=${() => this.startEdit(purchase)}
+                class="w-6 h-6 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface"
+              >${icon("pencil", { size: 12 })}</button>
+              <button
+                type="button"
+                aria-label=${msg("Release")}
+                title=${msg("Release")}
+                @click=${() => this.deletePurchase(purchase)}
+                class="w-6 h-6 grid place-items-center rounded text-danger hover:bg-danger/10"
+              >${icon("trash", { size: 12 })}</button>
+            </div>`}
       </div>
     `;
   }
 
   private renderDiscardedPanel() {
+    // Discarded players are a live-auction concern only — hidden once the
+    // auction is terminated (readonly). While in progress the block is
+    // always shown (even with none yet) so its slot stays stable.
+    if (this.readonly) return nothing;
     const discarded = this.discardedPlayers;
-    if (discarded.length === 0) return nothing;
     return html`
       <section class="mt-6">
+        <h2 class="text-[16px] font-bold m-0 mb-3">
+          ${msg(str`Discarded (${discarded.length})`)}
+        </h2>
         <div class="rounded-xl border border-line bg-surface px-3 py-2.5">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="text-warn">${icon("ban", { size: 14 })}</span>
-            <h2 class="text-[12px] font-bold uppercase tracking-wider text-fg-muted m-0">
-              ${msg(str`Discarded (${discarded.length})`)}
-            </h2>
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            ${discarded.map(
-              (p) => html`
-                <div
-                  class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full border border-line bg-app text-[12px]"
-                >
-                  <span class="font-semibold text-fg-dim">${p.name}</span>
-                  ${renderRoleChips(p.mantra_roles)}
-                  <button
-                    type="button"
-                    @click=${() => this.restorePlayer(p)}
-                    aria-label=${msg(str`Restore ${p.name}`)}
-                    title=${msg("Restore to the active pool")}
-                    class="w-6 h-6 grid place-items-center rounded-full text-accent hover:bg-accent/10"
-                  >${icon("rotate-ccw", { size: 12 })}</button>
-                </div>
-              `,
-            )}
-          </div>
+          ${discarded.length === 0
+            ? html`<p class="text-[12px] text-fg-muted italic m-0">
+                ${msg("No discarded players.")}
+              </p>`
+            : html`<div class="flex flex-wrap gap-1.5">
+                ${discarded.map(
+                  (p) => html`
+                    <div
+                      class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full border border-line bg-app text-[12px]"
+                    >
+                      <span class="font-semibold text-fg-dim">${p.name}</span>
+                      ${renderRoleChips(p.mantra_roles)}
+                      <button
+                        type="button"
+                        @click=${() => this.restorePlayer(p)}
+                        aria-label=${msg(str`Restore ${p.name}`)}
+                        title=${msg("Restore to the active pool")}
+                        class="w-6 h-6 grid place-items-center rounded-full text-accent hover:bg-accent/10"
+                      >${icon("rotate-ccw", { size: 12 })}</button>
+                    </div>
+                  `,
+                )}
+              </div>`}
         </div>
       </section>
     `;
@@ -630,7 +649,7 @@ export class AuctionRunning extends LitElement {
 
   private renderHistoryRow(r: HistoryRow, teams: Team[]) {
     const p = r.purchase;
-    if (this.editingPlayerId === p.player_id) {
+    if (!this.readonly && this.editingPlayerId === p.player_id) {
       return html`
         <tr class="border-b border-line last:border-b-0 bg-app/40">
           <td class="px-3 py-2 text-[12px] font-semibold">${r.playerName}</td>
@@ -716,22 +735,24 @@ export class AuctionRunning extends LitElement {
           ${this.formatPurchaseTime(p.created_at)}
         </td>
         <td class="px-3 py-1.5 text-right whitespace-nowrap">
-          <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              type="button"
-              aria-label=${msg("Edit")}
-              title=${msg("Edit")}
-              @click=${() => this.startEdit(p)}
-              class="w-6 h-6 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface"
-            >${icon("pencil", { size: 12 })}</button>
-            <button
-              type="button"
-              aria-label=${msg("Release")}
-              title=${msg("Release")}
-              @click=${() => this.deletePurchase(p)}
-              class="w-6 h-6 grid place-items-center rounded text-danger hover:bg-danger/10"
-            >${icon("trash", { size: 12 })}</button>
-          </div>
+          ${this.readonly
+            ? nothing
+            : html`<div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  aria-label=${msg("Edit")}
+                  title=${msg("Edit")}
+                  @click=${() => this.startEdit(p)}
+                  class="w-6 h-6 grid place-items-center rounded text-fg-dim hover:text-fg hover:bg-surface"
+                >${icon("pencil", { size: 12 })}</button>
+                <button
+                  type="button"
+                  aria-label=${msg("Release")}
+                  title=${msg("Release")}
+                  @click=${() => this.deletePurchase(p)}
+                  class="w-6 h-6 grid place-items-center rounded text-danger hover:bg-danger/10"
+                >${icon("trash", { size: 12 })}</button>
+              </div>`}
         </td>
       </tr>
     `;
@@ -849,7 +870,7 @@ export class AuctionRunning extends LitElement {
       </section>
       ${this.renderDiscardedPanel()}
       ${this.renderHistory()}
-      ${this.modules.length > 0
+      ${!this.readonly && this.modules.length > 0
         ? html`
             <section class="mt-6">
               <h2 class="text-[16px] font-bold m-0 mb-3">${msg("Modules")}</h2>
@@ -875,6 +896,6 @@ export class AuctionRunning extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "auction-running": AuctionRunning;
+    "auction-board": AuctionBoard;
   }
 }

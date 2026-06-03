@@ -19,7 +19,7 @@ import {
 } from "../auction-shared";
 import "./auction-evaluations";
 import "./auction-overview";
-import "./auction-running";
+import "./auction-board";
 import "./auction-finished";
 import "./auction-dialog";
 import "./evaluations-view-dialog";
@@ -71,7 +71,12 @@ export class AuctionPage extends LitElement {
   @state() private terminating = false;
   @state() private terminateError = "";
 
-  // Call/buy state — lifted from auction-running so the top-bar search
+  // Roster CSV export/import state (the buttons sit above Terminate).
+  @state() private rostersBusy = false;
+  @state() private rostersMessage = "";
+  @state() private rostersMessageKind: "ok" | "err" | "busy" = "ok";
+
+  // Call/buy state — lifted from the board so the top-bar search
   // and the central-row selected card share one source of truth.
   @state() private searchQuery = "";
   @state() private showResults = false;
@@ -139,22 +144,26 @@ export class AuctionPage extends LitElement {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.auction = (await res.json()) as Auction;
-      if (this.auction.status === "IN_PROGRESS") {
+      if (this.auction.status === "INITIAL") {
+        // No frozen player pool / purchases yet — the evaluations panel
+        // owns this state and fetches its own data.
+        this.players = [];
+        this.purchases = [];
+        this.modulePredictions = {};
+        this.roleSaturation = null;
+        this.clearSelection();
+      } else {
+        // IN_PROGRESS and TERMINATED both render the board (live vs.
+        // read-only), so both need players, purchases and predictions.
         await Promise.all([
           this.loadPlayers(),
           this.loadPurchases(),
           this.loadModulePredictions(),
           this.loadRoleSaturation(),
         ]);
-      } else {
-        this.players = [];
-        this.purchases = [];
-        this.modulePredictions = {};
-        this.roleSaturation = null;
-        // Leaving IN_PROGRESS (e.g. just terminated) — drop any pending
-        // call/buy selection so the UI doesn't render a buy form against
-        // stale state.
-        this.clearSelection();
+        // No live buy form once terminated — drop any pending selection
+        // so the UI doesn't render against stale state.
+        if (this.auction.status !== "IN_PROGRESS") this.clearSelection();
       }
     } catch (err) {
       this.loadError = err instanceof Error ? err.message : String(err);
@@ -505,6 +514,134 @@ export class AuctionPage extends LitElement {
     `;
   }
 
+  private exportRosters(): void {
+    window.open(
+      `${BACKEND_URL}/auctions/${this.auctionId}/purchases/export`,
+      "_blank",
+      "noopener",
+    );
+  }
+
+  private triggerRostersImport(): void {
+    const input = this.renderRoot.querySelector(
+      'input[type="file"][data-rosters]',
+    ) as HTMLInputElement | null;
+    input?.click();
+  }
+
+  private async onRostersFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (
+      !confirm(
+        msg(
+          str`Import rosters from "${file.name}"?\nThis bulk-creates purchases and requires an auction with no purchases yet.`,
+        ),
+      )
+    ) {
+      input.value = "";
+      return;
+    }
+
+    this.rostersBusy = true;
+    this.rostersMessageKind = "busy";
+    this.rostersMessage = msg(str`Uploading ${file.name}…`);
+
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/auctions/${this.auctionId}/purchases/import`,
+        { method: "POST", body: fd },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        imported?: number;
+        unknown_player_ids?: number[];
+        skipped_duplicates?: number[];
+        detail?: unknown;
+      };
+      if (!res.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : data.detail != null
+              ? JSON.stringify(data.detail)
+              : `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+      const imported = data.imported ?? 0;
+      const skipped =
+        (data.unknown_player_ids?.length ?? 0) +
+        (data.skipped_duplicates?.length ?? 0);
+      const skippedNote =
+        skipped === 0
+          ? ""
+          : skipped === 1
+            ? msg(" (1 row skipped)")
+            : msg(str` (${skipped} rows skipped)`);
+      this.rostersMessageKind = "ok";
+      this.rostersMessage =
+        imported === 1
+          ? msg(str`Imported 1 purchase.${skippedNote}`)
+          : msg(str`Imported ${imported} purchases.${skippedNote}`);
+      await this.refreshAfterPurchaseChange();
+    } catch (err) {
+      this.rostersMessageKind = "err";
+      this.rostersMessage = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.rostersBusy = false;
+      input.value = "";
+    }
+  }
+
+  private renderRostersWidget() {
+    const msgCls =
+      this.rostersMessageKind === "err"
+        ? "text-danger"
+        : this.rostersMessageKind === "ok"
+          ? "text-accent"
+          : "text-fg-muted";
+    // Import only makes sense on a live, empty auction; export is offered
+    // whenever purchases exist (IN_PROGRESS and after TERMINATED).
+    const canImport = this.auction?.status === "IN_PROGRESS";
+    return html`
+      <div class="flex flex-col items-stretch gap-1.5 w-full">
+        <div class="flex gap-1.5">
+          ${canImport
+            ? html`<button
+                type="button"
+                ?disabled=${this.rostersBusy || this.purchases.length > 0}
+                title=${this.purchases.length > 0
+                  ? msg("Import is only available before any player has been bought")
+                  : msg("Import rosters")}
+                @click=${() => this.triggerRostersImport()}
+                class="flex-1 px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40 disabled:cursor-not-allowed"
+              >${msg("Import rosters")}</button>`
+            : nothing}
+          <button
+            type="button"
+            ?disabled=${this.rostersBusy}
+            @click=${() => this.exportRosters()}
+            class="flex-1 px-2.5 py-1.5 rounded text-[12px] font-semibold border border-line bg-surface text-fg hover:bg-surface-hover hover:border-line-strong disabled:opacity-40"
+          >${msg("Export rosters")}</button>
+        </div>
+        ${this.rostersMessage
+          ? html`<p class=${"text-[11px] m-0 text-center " + msgCls}>
+              ${this.rostersMessage}
+            </p>`
+          : nothing}
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          data-rosters
+          class="hidden"
+          @change=${(e: Event) => this.onRostersFile(e)}
+        />
+      </div>
+    `;
+  }
+
   private renderTerminateWidget() {
     const blockers = this.terminateBlockers;
     const can = this.canTerminate;
@@ -846,7 +983,14 @@ export class AuctionPage extends LitElement {
 
   private renderHeader(a: Auction) {
     const isRunning = a.status === "IN_PROGRESS";
-    const infoSpan = isRunning ? "md:col-span-8" : "md:col-span-12";
+    const isTerminated = a.status === "TERMINATED";
+    // Both running and terminated reserve a right-hand column (controls vs.
+    // export); only the running view also takes a left column for search.
+    const infoSpan = isRunning
+      ? "md:col-span-8"
+      : isTerminated
+        ? "md:col-span-10"
+        : "md:col-span-12";
 
     return html`
       <div class="flex items-center gap-2 mb-3 text-[12px] text-fg-muted">
@@ -862,16 +1006,25 @@ export class AuctionPage extends LitElement {
       <section class="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 items-stretch">
         ${isRunning
           ? html`<div class="md:col-span-2 flex flex-col gap-2">
-              ${this.renderTopSearch()}
               ${this.renderTopRandom()}
+              ${this.renderTopSearch()}
             </div>`
           : nothing}
         ${this.renderInfoCard(a, infoSpan)}
         ${isRunning
           ? html`<div
-              class="md:col-span-2 rounded-xl border border-line bg-surface p-4 flex items-center justify-center"
-            >${this.renderTerminateWidget()}</div>`
-          : nothing}
+              class="md:col-span-2 rounded-xl border border-line bg-surface p-4 flex flex-col items-center justify-center gap-3"
+            >
+              ${this.renderRostersWidget()}
+              ${this.renderTerminateWidget()}
+            </div>`
+          : isTerminated
+            ? html`<div
+                class="md:col-span-2 rounded-xl border border-line bg-surface p-4 flex flex-col items-center justify-center"
+              >
+                ${this.renderRostersWidget()}
+              </div>`
+            : nothing}
       </section>
     `;
   }
@@ -924,22 +1077,31 @@ export class AuctionPage extends LitElement {
       case "IN_PROGRESS":
         return html`
           ${this.renderCentralRow(a)}
-          <auction-running
+          <auction-board
             .auction=${a}
             .players=${this.players}
             .purchases=${this.purchases}
             .modulePredictions=${this.modulePredictions}
             @purchases-changed=${this.onPurchasesChanged}
             @pool-changed=${this.onPoolChanged}
-          ></auction-running>
+          ></auction-board>
         `;
       case "TERMINATED":
-        return html`<auction-finished .auction=${a}></auction-finished>`;
+        return html`<auction-finished
+          .auction=${a}
+          .players=${this.players}
+          .purchases=${this.purchases}
+          .modulePredictions=${this.modulePredictions}
+        ></auction-finished>`;
     }
   }
 
   override render() {
-    const wide = this.auction?.status === "IN_PROGRESS";
+    // The board (IN_PROGRESS) and final summary (TERMINATED) both want the
+    // full viewport width; only the INITIAL evaluations panel is centered.
+    const wide =
+      this.auction?.status === "IN_PROGRESS" ||
+      this.auction?.status === "TERMINATED";
     const mainCls = wide
       ? "px-6 pt-8 pb-20"
       : "max-w-screen-xl mx-auto px-6 pt-8 pb-20";

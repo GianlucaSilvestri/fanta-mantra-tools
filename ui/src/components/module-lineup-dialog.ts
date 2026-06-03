@@ -5,6 +5,7 @@ import { localized, msg, str } from "@lit/localize";
 import { icon } from "../icons";
 import {
   BACKEND_URL,
+  compareRoles,
   renderRoleChips,
   reorderWingsToSides,
   ROLE_COLORS,
@@ -230,7 +231,16 @@ export class ModuleLineupDialog extends LitElement {
               `
             : html`
                 <div class="rounded-lg border border-line bg-app overflow-hidden">
-                  ${lineup.bench.map((p) => this.renderBenchPlayer(p))}
+                  ${[...lineup.bench]
+                    .sort((a, b) => {
+                      // Most attacking first (strikers → goalkeepers), so
+                      // negate the defensive-first comparator. A C/T ranks
+                      // above a pure C here. Ties break alphabetically.
+                      const c = compareRoles(a.mantra_roles, b.mantra_roles);
+                      if (c !== 0) return -c;
+                      return a.name.localeCompare(b.name);
+                    })
+                    .map((p) => this.renderBenchPlayer(p))}
                 </div>
               `}
         </aside>
